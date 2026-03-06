@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forty Thieves — Thieves &amp; Kings</title>
+<link href="https://fonts.googleapis.com/css?family=Ubuntu+Condensed" rel="stylesheet">
+<style>
+/* ── Base ─────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: radial-gradient(ellipse at 50% 20%, #2d6b34 0%, #0f3a18 100%);
+  overflow: hidden;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+#container {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+}
+
+/* ── Card shell ───────────────────────────────────────── */
+.card {
+  position: absolute;
+  top: 0; left: 0;
+  width: 3.875rem;
+  height: 5.5rem;
+  border-radius: 7px;
+  user-select: none;
+  will-change: transform;
+  box-shadow: 0 2px 6px rgba(0,0,0,.5);
+}
+
+/* ── Card back ────────────────────────────────────────── */
+.card-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 7px;
+  background: radial-gradient(ellipse at 50% 35%, #3949ab 0%, #1a237e 100%);
+  border: 2px solid rgba(255,255,255,.2);
+}
+.card-back::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,.15);
+  background:
+    repeating-linear-gradient( 45deg, rgba(255,255,255,.05) 0, rgba(255,255,255,.05) 1px, transparent 1px, transparent 7px),
+    repeating-linear-gradient(-45deg, rgba(255,255,255,.05) 0, rgba(255,255,255,.05) 1px, transparent 1px, transparent 7px);
+}
+
+/* ── Card front ───────────────────────────────────────── */
+.card-front {
+  position: absolute;
+  inset: 0;
+  border-radius: 7px;
+  background: linear-gradient(160deg, #fff 0%, #f0f0f0 100%);
+  border: 1px solid rgba(0,0,0,.18);
+  overflow: hidden;
+  font-family: 'Ubuntu Condensed', 'Segoe UI', sans-serif;
+  font-weight: 700;
+}
+.card-front.red   { color: #c62828; }
+.card-front.black { color: #1a1a1a; }
+
+.card-front .tl,
+.card-front .br {
+  position: absolute;
+  font-size: .72rem;
+  line-height: 1.15;
+  text-align: center;
+}
+.card-front .tl { top: 3px; left: 4px; }
+.card-front .br { bottom: 3px; right: 4px; transform: rotate(180deg); }
+.card-front .suit-mid {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+/* face-down hides front; face-up hides back */
+.card.face-down .card-front      { display: none; }
+.card:not(.face-down) .card-back { display: none; }
+
+/* ── Card game states ─────────────────────────────────── */
+.card.valid-move {
+  box-shadow: 0 0 0 2.5px #ef5350, 0 0 18px rgba(239,83,80,.55), 0 2px 8px rgba(0,0,0,.4);
+  cursor: pointer;
+}
+.card.valid-move:hover {
+  box-shadow: 0 0 0 2.5px #ef5350, 0 0 28px rgba(239,83,80,.8), 0 4px 14px rgba(0,0,0,.5);
+}
+.card.discard-top {
+  box-shadow: 0 0 0 2.5px rgba(240,192,64,.85), 0 4px 16px rgba(0,0,0,.5);
+}
+.card.pile-top { cursor: pointer; }
+.card.pile-top:hover {
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,.4), 0 3px 10px rgba(0,0,0,.4);
+}
+
+/* ── Header ──────────────────────────────────────────── */
+header {
+  position: fixed; top: 0; left: 0; right: 0; height: 50px;
+  z-index: 50;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px;
+  background: rgba(0,0,0,.35);
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  color: #fff;
+}
+h1 { font-size: 1.05rem; font-weight: 800; color: #f0c040; letter-spacing: .5px; }
+#statsRow { font-size: .68rem; color: #a5d6a7; margin-top: 2px; }
+.btns { display: flex; gap: 8px; }
+button {
+  border: none; cursor: pointer;
+  font-size: .78rem; font-weight: 700; border-radius: 20px; padding: 6px 13px;
+  transition: transform .1s;
+}
+button:active { transform: scale(.94); }
+.btn-new  { background: linear-gradient(135deg,#43a047,#2e7d32); color:#fff; box-shadow:0 2px 6px rgba(0,0,0,.3); }
+.btn-undo { background: linear-gradient(135deg,#616161,#333);    color:#fff; box-shadow:0 2px 6px rgba(0,0,0,.3); }
+.btn-undo:disabled { opacity:.35; cursor:not-allowed; }
+
+/* ── Floating UI labels ───────────────────────────────── */
+.ui-lbl {
+  position: fixed; z-index: 20; pointer-events: none;
+  font-size: .6rem; text-transform: uppercase; letter-spacing: 1px;
+  color: #81c784; background: rgba(0,0,0,.28); border-radius: 4px; padding: 2px 6px;
+  white-space: nowrap;
+}
+#info-panel {
+  position: fixed; z-index: 20; pointer-events: none;
+  color: #fff; text-align: center; line-height: 1.6;
+}
+#elimInfo  { font-size: .82rem; color: #a5d6a7; }
+#validHint { font-size: .72rem; color: #69f0ae; }
+#noMoves   { font-size: .72rem; color: #ffb74d; animation: blink 1s step-start infinite; }
+#drawLeft  { font-size: .65rem; color: rgba(255,255,255,.4); }
+@keyframes blink { 50% { opacity: .4; } }
+
+/* ── Win/Lose overlay ─────────────────────────────────── */
+#overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.72); backdrop-filter: blur(8px);
+  z-index: 100; align-items: center; justify-content: center;
+}
+#overlay.on { display: flex; }
+#ovBox {
+  background: linear-gradient(145deg,#1e3820,#0e1e10);
+  border: 1px solid rgba(255,255,255,.1); border-radius: 20px;
+  padding: 36px 44px; text-align: center; max-width: 320px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6); color: #fff;
+  animation: popIn .4s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes popIn { from{transform:scale(.5);opacity:0} to{transform:scale(1);opacity:1} }
+#ovBox h2 { font-size: 2.2rem; margin-bottom: 10px; }
+#ovBox.win  h2 { color: #f0c040; }
+#ovBox.lose h2 { color: #ef5350; }
+#ovBox p { color:rgba(255,255,255,.65); font-size:.88rem; margin-bottom:20px; line-height:1.5; }
+.btn-again { background:linear-gradient(135deg,#43a047,#2e7d32); color:#fff; padding:10px 28px; font-size:.9rem; border-radius:24px; }
+
+/* ── Confetti ─────────────────────────────────────────── */
+.cp { position:fixed; border-radius:2px; animation:fall linear forwards; pointer-events:none; z-index:101; }
+@keyframes fall {
+  0%   { transform:translateY(-30px) rotate(0deg);   opacity:1; }
+  80%  { opacity:1; }
+  100% { transform:translateY(110vh)  rotate(720deg); opacity:0; }
+}
+
+/* ── Mobile ───────────────────────────────────────────── */
+@media (max-width: 520px) {
+  html { font-size: 11px; }
+  h1   { font-size: .9rem; }
+  .btns button { padding: 5px 10px; font-size: .72rem; }
+}
+</style>
+</head>
+<body>
+
+<div id="container"></div>
+
+<span id="lbl-current" class="ui-lbl"></span>
+<span id="lbl-pile"    class="ui-lbl"></span>
+<div  id="info-panel">
+  <div id="elimInfo"></div>
+  <div id="validHint"></div>
+  <div id="noMoves" style="display:none">No valid moves — draw from pile!</div>
+  <div id="drawLeft"></div>
+</div>
+
+<header>
+  <div>
+    <h1>Forty Thieves</h1>
+    <div id="statsRow">W: 0 · P: 0 · 0%</div>
+  </div>
+  <div class="btns">
+    <button class="btn-undo" id="undoBtn" onclick="undoMove()" disabled>↩ Undo</button>
+    <button class="btn-new"              onclick="newGame()">New Game</button>
+  </div>
+</header>
+
+<div id="overlay">
+  <div id="ovBox">
+    <h2 id="ovTitle"></h2>
+    <p  id="ovMsg"></p>
+    <button class="btn-again" onclick="newGame()">Play Again</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── Card constants ──────────────────────────────────────
+const SUITS      = ['spades','hearts','diamonds','clubs'];
+const RANK_NAMES = ['','A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const SUIT_SYM   = { spades:'♠', hearts:'♥', diamonds:'♦', clubs:'♣' };
+const IS_RED     = { hearts:true, diamonds:true };
+
+// ── Card factory ────────────────────────────────────────
+function createDeck() {
+  const frag  = document.createDocumentFragment();
+  const cards = [];
+  SUITS.forEach(suit => {
+    for (let rank = 1; rank <= 13; rank++) {
+      const el  = document.createElement('div');
+      el.className = 'card face-down';
+      const sym = SUIT_SYM[suit];
+      const r   = RANK_NAMES[rank];
+      const col = IS_RED[suit] ? 'red' : 'black';
+      el.innerHTML =
+        '<div class="card-back"></div>' +
+        `<div class="card-front ${col}">` +
+          `<span class="tl">${r}<br>${sym}</span>` +
+          `<span class="suit-mid">${sym}</span>` +
+          `<span class="br">${r}<br>${sym}</span>` +
+        '</div>';
+      frag.appendChild(el);
+      cards.push({ suit, rank, el, faceUp: false, x: 0, y: 0 });
+    }
+  });
+  document.getElementById('container').appendChild(frag);
+  return cards;
+}
+
+// ── Card helpers ────────────────────────────────────────
+// Move a card by setting CSS transform. ms=0 is instant (no transition).
+function moveCard(card, x, y, ms, delayMs) {
+  card.x = x; card.y = y;
+  if (!ms || ms <= 1) {
+    card.el.style.transition = 'none';
+  } else {
+    card.el.style.transition = `transform ${ms}ms ${delayMs || 0}ms ease`;
+  }
+  card.el.style.transform = `translate(${x}px,${y}px)`;
+}
+
+// Flip card face-up or face-down.
+function setFace(card, faceUp) {
+  card.faceUp = faceUp;
+  card.el.classList.toggle('face-down', !faceUp);
+}
+
+// ── Game state ──────────────────────────────────────────
+let allCards    = null;
+let cols        = [];   // 7 columns
+let drawPile    = [];   // right: face-down stack
+let discardPile = [];   // left:  face-up, top = reference
+let undoStack   = [];
+let dead        = false;
+let busy        = false;
+
+// ── Layout ──────────────────────────────────────────────
+function rem() { return parseFloat(getComputedStyle(document.documentElement).fontSize); }
+
+function layout() {
+  const r   = rem();
+  const cw  = 3.875 * r;
+  const ch  = 5.5   * r;
+  const hdr = 50;
+  const pad = 14;
+  const ov  = 1.45 * r;
+  const gap = 0.45 * r;
+
+  const drawX = pad + cw / 2;
+  const drawY = hdr + pad + ch / 2;
+  const pileX = window.innerWidth - pad - cw / 2;
+  const pileY = drawY;
+
+  const colsY     = hdr + pad + ch + pad;
+  const totalColW = 7 * cw + 6 * gap;
+  const col0X     = (window.innerWidth - totalColW) / 2 + cw / 2;
+
+  return { r, cw, ch, hdr, pad, ov, gap, drawX, drawY, pileX, pileY, colsY, col0X };
+}
+
+// ── Helpers ─────────────────────────────────────────────
+const topDiscard = ()  => discardPile.length ? discardPile[discardPile.length - 1] : null;
+const isValid    = c   => { const r = topDiscard(); return !!r && Math.abs(c.rank - r.rank) === 1; };
+const totalCards = ()  => cols.reduce((s, c) => s + c.length, 0);
+const hasValid   = ()  => cols.some(c => c.length && isValid(c[c.length - 1]));
+
+function shuffle(a) {
+  const d = [...a];
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  return d;
+}
+
+// ── Undo ────────────────────────────────────────────────
+function saveState() {
+  undoStack.push({
+    cols:        cols.map(c => [...c]),
+    drawPile:    [...drawPile],
+    discardPile: [...discardPile]
+  });
+  if (undoStack.length > 50) undoStack.shift();
+  document.getElementById('undoBtn').disabled = false;
+}
+
+function undoMove() {
+  if (!undoStack.length || busy) return;
+  const s     = undoStack.pop();
+  cols        = s.cols;
+  drawPile    = s.drawPile;
+  discardPile = s.discardPile;
+  dead        = false;
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  closeOverlay();
+  positionAll(false);
+}
+
+// ── New game ─────────────────────────────────────────────
+function newGame() {
+  if (busy) return;
+  closeOverlay();
+  clearConfetti();
+
+  if (!allCards) allCards = createDeck();
+
+  const shuffled  = shuffle(allCards);
+  cols        = Array.from({ length: 7 }, () => []);
+  for (let i = 0; i < 35; i++) cols[i % 7].push(shuffled[i]);
+  const remaining = shuffled.slice(35);
+  discardPile = [remaining[0]];
+  drawPile    = remaining.slice(1);
+  undoStack   = [];
+  dead        = false;
+  document.getElementById('undoBtn').disabled = true;
+
+  // Reset all cards to pile position, face-down, no state classes
+  const lyt = layout();
+  allCards.forEach(c => {
+    c.el.className = 'card face-down';
+    c.faceUp = false;
+    c.el.style.zIndex = 0;
+    moveCard(c, lyt.pileX, lyt.pileY, 0);
+  });
+
+  // Deal after a tick so the instant-move above has committed
+  setTimeout(() => positionAll(true), 60);
+}
+
+// ── Actions ──────────────────────────────────────────────
+function eliminate(ci) {
+  if (dead || busy) return;
+  const col  = cols[ci];
+  if (!col.length) return;
+  const card = col[col.length - 1];
+  if (!isValid(card)) return;
+
+  saveState();
+  busy = true;
+  card.el.classList.remove('valid-move');
+
+  const lyt = layout();
+  moveCard(card, lyt.drawX, lyt.drawY, 220);
+
+  setTimeout(() => {
+    col.pop();
+    discardPile.push(card);
+    busy = false;
+    checkEnd();
+    positionAll(false);
+  }, 240);
+}
+
+function drawFromPile() {
+  if (dead || busy || !drawPile.length) return;
+  saveState();
+  busy = true;
+
+  // Update state immediately — no onComplete dependency
+  const card = drawPile.pop();
+  discardPile.push(card);
+  setFace(card, true);
+
+  const lyt = layout();
+  moveCard(card, lyt.drawX, lyt.drawY, 220);
+
+  setTimeout(() => {
+    busy = false;
+    checkEnd();
+    positionAll(false);
+  }, 260);
+}
+
+// ── End-game ─────────────────────────────────────────────
+function checkEnd() {
+  if (totalCards() === 0) {
+    dead = true;
+    updateStats(true);
+    setTimeout(() => { spawnConfetti(); showOverlay(true); }, 380);
+  } else if (!drawPile.length && !hasValid()) {
+    dead = true;
+    updateStats(false);
+    setTimeout(() => showOverlay(false), 300);
+  }
+}
+
+// ── Core render ───────────────────────────────────────────
+// dealAnim=true : staggered deal from the pile, cards flip face-up on arrival
+// dealAnim=false: fast 80ms repositioning after any action
+function positionAll(dealAnim) {
+  const lyt        = layout();
+  const positioned = new Set();
+
+  // 1 ── Column cards
+  cols.forEach((col, ci) => {
+    col.forEach((card, idx) => {
+      const isTop = idx === col.length - 1;
+      const x     = lyt.col0X + ci * (lyt.cw + lyt.gap);
+      const y     = lyt.colsY + lyt.ch / 2 + idx * lyt.ov;
+
+      card.el.style.zIndex = idx + 1;
+      card.el.classList.remove('discard-top', 'pile-top');
+
+      if (dealAnim) {
+        setFace(card, false);
+        card.el.classList.remove('valid-move');
+        const delay = (ci + idx * 7) * 38;
+        moveCard(card, x, y, 340, delay);
+        // Flip face-up after the card arrives
+        setTimeout(() => {
+          setFace(card, true);
+          card.el.classList.toggle('valid-move', isTop && !dead && isValid(card));
+        }, delay + 340);
+      } else {
+        setFace(card, true);
+        card.el.classList.toggle('valid-move', isTop && !dead && isValid(card));
+        moveCard(card, x, y, 80);
+      }
+      positioned.add(card);
+    });
+  });
+
+  // 2 ── Discard pile (left) — top card face-up with gold border
+  discardPile.forEach((card, idx) => {
+    const depthFromTop = discardPile.length - 1 - idx; // 0 = top
+    card.el.classList.remove('valid-move', 'pile-top');
+
+    if (depthFromTop > 3) {
+      // Deep cards hidden off-screen
+      card.el.style.zIndex = 0;
+      card.el.classList.remove('discard-top');
+      setFace(card, false);
+      moveCard(card, -lyt.cw * 2, lyt.drawY, 1);
+    } else {
+      const isTop = depthFromTop === 0;
+      card.el.style.zIndex = 55 - depthFromTop;
+      card.el.classList.toggle('discard-top', isTop);
+
+      if (dealAnim && isTop) {
+        // Initial deal: first card flies from pile to discard position
+        const delay = 35 * 38;
+        moveCard(card, lyt.drawX, lyt.drawY, 340, delay);
+        setTimeout(() => setFace(card, true), delay + 340);
+      } else {
+        setFace(card, isTop);
+        moveCard(card,
+          lyt.drawX - depthFromTop * 1.2,
+          lyt.drawY - depthFromTop * 1.2,
+          isTop ? 80 : 1
+        );
+      }
+    }
+    positioned.add(card);
+  });
+
+  // 3 ── Draw pile (right) — face-down stack, click top to draw
+  drawPile.forEach((card, idx) => {
+    const depthFromTop = drawPile.length - 1 - idx; // 0 = top
+    const isTop        = depthFromTop === 0;
+    const visualDepth  = Math.min(depthFromTop, 4);
+
+    card.el.style.zIndex = 70 - depthFromTop;
+    card.el.classList.remove('valid-move', 'discard-top');
+    card.el.classList.toggle('pile-top', isTop);
+    setFace(card, false);
+    moveCard(card,
+      lyt.pileX - visualDepth * 0.8,
+      lyt.pileY - visualDepth * 0.8,
+      dealAnim ? 1 : (isTop ? 50 : 1)
+    );
+    positioned.add(card);
+  });
+
+  // 4 ── Any card not in any pile (shouldn't occur) — park off-screen
+  allCards.forEach(card => {
+    if (positioned.has(card)) return;
+    card.el.style.zIndex = 0;
+    card.el.classList.remove('valid-move', 'discard-top', 'pile-top');
+    moveCard(card, -lyt.cw * 2, -lyt.ch * 2, 1);
+  });
+
+  updateUI(lyt);
+}
+
+// ── UI labels ─────────────────────────────────────────────
+function updateUI(lyt) {
+  const ref  = topDiscard();
+  const elim = 35 - totalCards();
+  const left = drawPile.length;
+
+  document.getElementById('elimInfo').textContent = `${elim} / 35 eliminated`;
+  document.getElementById('drawLeft').textContent = `${left} draw card${left !== 1 ? 's' : ''} left`;
+
+  if (ref) {
+    const lo = ref.rank > 1  ? RANK_NAMES[ref.rank - 1] : null;
+    const hi = ref.rank < 13 ? RANK_NAMES[ref.rank + 1] : null;
+    document.getElementById('validHint').textContent = 'Match: ' + [lo, hi].filter(Boolean).join(' or ');
+  } else {
+    document.getElementById('validHint').textContent = '';
+  }
+
+  const noMoves = !dead && !!ref && !hasValid();
+  document.getElementById('noMoves').style.display = noMoves ? '' : 'none';
+
+  const lblC = document.getElementById('lbl-current');
+  lblC.textContent = 'Discard';
+  lblC.style.left  = (lyt.drawX - lyt.cw / 2) + 'px';
+  lblC.style.top   = (lyt.drawY - lyt.ch / 2 - 20) + 'px';
+
+  const lblP = document.getElementById('lbl-pile');
+  lblP.textContent = `Draw (${left})`;
+  lblP.style.left  = (lyt.pileX - lyt.cw / 2) + 'px';
+  lblP.style.top   = (lyt.pileY - lyt.ch / 2 - 20) + 'px';
+
+  const panel = document.getElementById('info-panel');
+  panel.style.left  = (lyt.drawX + lyt.cw / 2 + 10) + 'px';
+  panel.style.right = (window.innerWidth - lyt.pileX + lyt.cw / 2 + 10) + 'px';
+  panel.style.top   = (lyt.drawY - lyt.ch / 3) + 'px';
+
+  renderStats();
+}
+
+// ── Stats ─────────────────────────────────────────────────
+function loadStats()  { return JSON.parse(localStorage.getItem('ft_stats') || '{"played":0,"won":0}'); }
+function updateStats(won) {
+  const s = loadStats(); s.played++; if (won) s.won++;
+  localStorage.setItem('ft_stats', JSON.stringify(s));
+}
+function renderStats() {
+  const s   = loadStats();
+  const pct = s.played ? Math.round(s.won / s.played * 100) : 0;
+  document.getElementById('statsRow').textContent = `W: ${s.won}  ·  P: ${s.played}  ·  ${pct}%`;
+}
+
+// ── Overlay ───────────────────────────────────────────────
+function showOverlay(won) {
+  const left = totalCards();
+  document.getElementById('ovBox').className = won ? 'win' : 'lose';
+  document.getElementById('ovTitle').textContent = won ? 'You Win!'  : 'Game Over';
+  document.getElementById('ovMsg').textContent   = won
+    ? 'All columns cleared! Excellent play!'
+    : `${left} card${left !== 1 ? 's' : ''} left. Better luck next time!`;
+  document.getElementById('overlay').classList.add('on');
+}
+function closeOverlay() { document.getElementById('overlay').classList.remove('on'); }
+
+// ── Confetti ──────────────────────────────────────────────
+const CONFETTI_COLORS = ['#f0c040','#00e676','#ff5252','#40c4ff','#e040fb','#ffab40'];
+function spawnConfetti() {
+  for (let i = 0; i < 80; i++) {
+    const el   = document.createElement('div');
+    el.className = 'cp';
+    const size = 6 + Math.random() * 8;
+    el.style.cssText =
+      `left:${Math.random()*100}vw;top:-20px;width:${size}px;height:${size}px;` +
+      `background:${CONFETTI_COLORS[i % CONFETTI_COLORS.length]};` +
+      `animation-delay:${Math.random()*1.4}s;animation-duration:${2+Math.random()*1.5}s;`;
+    document.body.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
+  }
+}
+function clearConfetti() { document.querySelectorAll('.cp').forEach(el => el.remove()); }
+
+// ── Click delegation ──────────────────────────────────────
+document.getElementById('container').addEventListener('click', function(e) {
+  if (dead || busy) return;
+  const el = e.target.closest('.card');
+  if (!el) return;
+
+  // Valid top column card?
+  for (let ci = 0; ci < cols.length; ci++) {
+    const col = cols[ci];
+    if (!col.length) continue;
+    const top = col[col.length - 1];
+    if (top.el === el && isValid(top)) { eliminate(ci); return; }
+  }
+
+  // Top of the draw pile?
+  if (drawPile.length && drawPile[drawPile.length - 1].el === el) {
+    drawFromPile(); return;
+  }
+});
+
+// ── Resize ────────────────────────────────────────────────
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => positionAll(false), 200);
+});
+
+// ── Boot ──────────────────────────────────────────────────
+newGame();
+</script>
+</body>
+</html>
