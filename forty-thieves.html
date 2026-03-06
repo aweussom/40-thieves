@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forty Thieves — Thieves &amp; Kings</title>
+<link href="https://fonts.googleapis.com/css?family=Ubuntu+Condensed" rel="stylesheet">
+<link rel="stylesheet" href="common/styles.css">
+</head>
+<body>
+
+<div id="container"></div>
+
+<header>
+  <div>
+    <h1>Forty Thieves</h1>
+    <div id="statsRow">W: 0 · P: 0 · 0%</div>
+  </div>
+  <div id="scoreDisplay">0<span>SCORE</span></div>
+  <div class="btns">
+    <button class="btn-undo" id="undoBtn" disabled style="display:none">↩ Undo</button>
+    <label class="easy-lbl"><input type="checkbox" id="easyModeChk"> Easy</label>
+    <button class="btn-new" id="newGameBtn">New Game</button>
+  </div>
+</header>
+
+<div id="overlay">
+  <div id="ovBox">
+    <h2 id="ovTitle"></h2>
+    <p  id="ovMsg"></p>
+    <button class="btn-again" id="playAgainBtn">Play Again</button>
+  </div>
+</div>
+
+<script type="module">
+import { createDeck, moveCard, setFace, shuffle, rem } from './common/cards.js';
+import { scaleToFit, initResize, showOverlay, closeOverlay,
+         startWinAnimation, stopWinAnimation, initStats } from './common/ui.js';
+
+// ── Layout constants ─────────────────────────────────────
+// Width:  7 cards + 6 gaps = 7*3.875 + 6*0.45 = 29.825 rem
+// Height: fixed 92px + (2.5*ch + 4*ov) = 2.5*5.5 + 4*1.45 = 19.55 rem
+const SCALE_OPTS = { remsW: 7*3.875 + 6*0.45, remsH: 2.5*5.5 + 4*1.45, fixedH: 92 };
+
+// ── Stats ────────────────────────────────────────────────
+const stats = initStats('ft_stats');
+
+// ── Game state ───────────────────────────────────────────
+let allCards    = null;
+let cols        = [];
+let drawPile    = [];
+let discardPile = [];
+let undoStack   = [];
+let dead        = false;
+let busy        = false;
+let easyMode    = false;
+let shakePending = false;
+let score        = 0;
+
+// ── Layout ───────────────────────────────────────────────
+function layout() {
+  const r   = rem();
+  const cw  = 3.875 * r;
+  const ch  = 5.5   * r;
+  const hdr = 50;
+  const pad = 14;
+  const ov  = 1.45 * r;
+  const gap = 0.45 * r;
+
+  const colsY     = hdr + pad;
+  const totalColW = 7 * cw + 6 * gap;
+  const col0X     = (window.innerWidth - totalColW) / 2;
+
+  const cx    = window.innerWidth / 2;
+  const drawX = cx - cw / 2 - gap * 2;
+  const pileX = cx + cw / 2 + gap * 2;
+  const drawY = colsY + ch + 4 * ov + pad * 2 + ch / 2;
+  const pileY = drawY;
+
+  return { r, cw, ch, hdr, pad, ov, gap, drawX, drawY, pileX, pileY, colsY, col0X };
+}
+
+// ── Helpers ──────────────────────────────────────────────
+const topDiscard = ()  => discardPile.length ? discardPile[discardPile.length - 1] : null;
+const isValid    = c   => { const r = topDiscard(); if (!r) return false; if (r.suit === 'joker' || c.suit === 'joker') return true; return Math.abs(c.rank - r.rank) === 1; };
+const totalCards = ()  => cols.reduce((s, c) => s + c.length, 0);
+const hasValid   = ()  => cols.some(c => c.length && isValid(c[c.length - 1]));
+
+// ── Scoring ──────────────────────────────────────────────
+function cardScore(card) {
+  if (card.suit === 'joker') return 0;
+  const base = (card.rank === 1 || card.rank >= 11) ? 8 : 6;
+  return easyMode ? Math.floor(base / 2) : base;
+}
+function renderScore() {
+  document.getElementById('scoreDisplay').innerHTML = `${score}<span>SCORE</span>`;
+}
+
+// ── Undo ─────────────────────────────────────────────────
+function saveState() {
+  undoStack.push({
+    cols:        cols.map(c => [...c]),
+    drawPile:    [...drawPile],
+    discardPile: [...discardPile],
+    score
+  });
+  if (undoStack.length > 50) undoStack.shift();
+  document.getElementById('undoBtn').disabled = false;
+}
+
+function undoMove() {
+  if (!undoStack.length || busy) return;
+  const s     = undoStack.pop();
+  cols        = s.cols;
+  drawPile    = s.drawPile;
+  discardPile = s.discardPile;
+  score       = s.score;
+  dead        = false;
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  closeOverlay();
+  positionAll(false);
+}
+
+// ── Smart deal: pick the most-winnable shuffle ────────────
+function greedySolve(shuffled) {
+  const tCols = Array.from({ length: 7 }, () => []);
+  for (let i = 0; i < 35; i++) {
+    const c = shuffled[i];
+    tCols[i % 7].push({ rank: c.rank, suit: c.suit });
+  }
+  const remaining = shuffled.slice(35);
+  let tDiscard    = [{ rank: remaining[0].rank, suit: remaining[0].suit }];
+  let tDraw       = remaining.slice(1).map(c => ({ rank: c.rank, suit: c.suit }));
+  let cleared     = 0;
+
+  const valid = (c, ref) =>
+    ref.suit === 'joker' || c.suit === 'joker' || Math.abs(c.rank - ref.rank) === 1;
+
+  let progress = true;
+  while (progress) {
+    progress = false;
+    const ref = tDiscard[tDiscard.length - 1];
+    for (let ci = 0; ci < 7; ci++) {
+      const col = tCols[ci];
+      if (!col.length) continue;
+      const top = col[col.length - 1];
+      if (valid(top, ref)) {
+        col.pop();
+        tDiscard.push(top);
+        if (col.length === 0) cleared++;
+        progress = true;
+        break;
+      }
+    }
+    if (!progress && tDraw.length) {
+      tDiscard.push(tDraw.pop());
+      progress = true;
+    }
+  }
+  return cleared;
+}
+
+function bestShuffle() {
+  let best = null, bestScore = -1;
+  for (let i = 0; i < 500; i++) {
+    const s  = shuffle(allCards);
+    const sc = greedySolve(s);
+    if (sc > bestScore) { bestScore = sc; best = s; }
+    if (bestScore === 7) break;
+  }
+  return best;
+}
+
+// ── New game ─────────────────────────────────────────────
+function newGame() {
+  if (busy) return;
+  closeOverlay();
+  stopWinAnimation();
+
+  if (!allCards) allCards = createDeck({ includeJokers: true });
+
+  const shuffled = bestShuffle();
+  cols        = Array.from({ length: 7 }, () => []);
+  for (let i = 0; i < 35; i++) cols[i % 7].push(shuffled[i]);
+  const remaining = shuffled.slice(35);
+  discardPile = [remaining[0]];
+  drawPile    = remaining.slice(1);
+  undoStack   = [];
+  dead        = false;
+  score       = 0;
+  renderScore();
+  document.getElementById('undoBtn').disabled = true;
+
+  const lyt = layout();
+  allCards.forEach(c => {
+    c.el.className = 'card face-down';
+    c.faceUp = false;
+    c.el.style.zIndex = 0;
+    moveCard(c, lyt.pileX, lyt.pileY, 0);
+  });
+
+  setTimeout(() => positionAll(true), 60);
+}
+
+// ── Actions ──────────────────────────────────────────────
+function eliminate(ci) {
+  if (dead || busy) return;
+  const col  = cols[ci];
+  if (!col.length) return;
+  const card = col[col.length - 1];
+  if (!isValid(card)) return;
+
+  saveState();
+  busy = true;
+  card.el.classList.remove('valid-move');
+
+  const lyt = layout();
+  moveCard(card, lyt.drawX, lyt.drawY, 220);
+
+  setTimeout(() => {
+    col.pop();
+    discardPile.push(card);
+    score += cardScore(card);
+    renderScore();
+    busy = false;
+    checkEnd();
+    positionAll(false);
+  }, 240);
+}
+
+function drawFromPile() {
+  if (dead || busy || !drawPile.length) return;
+  saveState();
+  busy = true;
+
+  const card = drawPile.pop();
+  discardPile.push(card);
+  setFace(card, true);
+
+  const lyt = layout();
+  moveCard(card, lyt.drawX, lyt.drawY, 220);
+
+  setTimeout(() => {
+    busy = false;
+    checkEnd();
+    positionAll(false);
+  }, 260);
+}
+
+// ── End-game ─────────────────────────────────────────────
+function checkEnd() {
+  if (totalCards() === 0) {
+    dead = true;
+    stats.update(true, score);
+    setTimeout(() => {
+      const lyt = layout();
+      startWinAnimation([...discardPile, ...drawPile], lyt.cw, lyt.ch);
+      const hs  = stats.load().highScore || 0;
+      showOverlay(true, 'You Win!',
+        `Score: ${score}${score >= hs ? ' 🏆 New best!' : ''} — All columns cleared!`);
+    }, 380);
+  } else if (!drawPile.length && !hasValid()) {
+    dead = true;
+    stats.update(false, score);
+    setTimeout(() => {
+      const left = totalCards();
+      showOverlay(false, 'Game Over',
+        `Score: ${score}  ·  ${left} card${left !== 1 ? 's' : ''} left. Better luck next time!`);
+    }, 300);
+  }
+}
+
+// ── Core render ───────────────────────────────────────────
+function positionAll(dealAnim) {
+  const lyt        = layout();
+  const positioned = new Set();
+
+  cols.forEach((col, ci) => {
+    col.forEach((card, idx) => {
+      const isTop = idx === col.length - 1;
+      const x     = lyt.col0X + ci * (lyt.cw + lyt.gap);
+      const y     = lyt.colsY + lyt.ch / 2 + idx * lyt.ov;
+
+      card.el.style.zIndex = idx + 1;
+      card.el.classList.remove('discard-top', 'pile-top');
+
+      if (dealAnim) {
+        setFace(card, false);
+        card.el.classList.remove('valid-move');
+        const delay = (ci + idx * 7) * 38;
+        moveCard(card, x, y, 340, delay);
+        setTimeout(() => {
+          setFace(card, true);
+          card.el.classList.toggle('valid-move', easyMode && isTop && !dead && isValid(card));
+        }, delay + 340);
+      } else {
+        setFace(card, true);
+        card.el.classList.toggle('valid-move', easyMode && isTop && !dead && isValid(card));
+        moveCard(card, x, y, 80);
+      }
+      positioned.add(card);
+    });
+  });
+
+  discardPile.forEach((card, idx) => {
+    const depthFromTop = discardPile.length - 1 - idx;
+    card.el.classList.remove('valid-move', 'pile-top');
+
+    if (depthFromTop > 3) {
+      card.el.style.zIndex = 0;
+      card.el.classList.remove('discard-top');
+      setFace(card, false);
+      moveCard(card, -lyt.cw * 2, lyt.drawY, 1);
+    } else {
+      const isTop = depthFromTop === 0;
+      card.el.style.zIndex = 55 - depthFromTop;
+      card.el.classList.toggle('discard-top', isTop);
+
+      if (dealAnim && isTop) {
+        const delay = 35 * 38;
+        moveCard(card, lyt.drawX, lyt.drawY, 340, delay);
+        setTimeout(() => setFace(card, true), delay + 340);
+      } else {
+        setFace(card, isTop);
+        moveCard(card,
+          lyt.drawX - depthFromTop * 1.2,
+          lyt.drawY - depthFromTop * 1.2,
+          isTop ? 80 : 1
+        );
+      }
+    }
+    positioned.add(card);
+  });
+
+  drawPile.forEach((card, idx) => {
+    const depthFromTop = drawPile.length - 1 - idx;
+    const isTop        = depthFromTop === 0;
+    const visualDepth  = Math.min(depthFromTop, 4);
+
+    card.el.style.zIndex = 70 - depthFromTop;
+    card.el.classList.remove('valid-move', 'discard-top');
+    card.el.classList.toggle('pile-top', isTop);
+    setFace(card, false);
+    moveCard(card,
+      lyt.pileX - visualDepth * 0.8,
+      lyt.pileY - visualDepth * 0.8,
+      dealAnim ? 1 : (isTop ? 50 : 1)
+    );
+    positioned.add(card);
+  });
+
+  allCards.forEach(card => {
+    if (positioned.has(card)) return;
+    card.el.style.zIndex = 0;
+    card.el.classList.remove('valid-move', 'discard-top', 'pile-top');
+    moveCard(card, -lyt.cw * 2, -lyt.ch * 2, 1);
+  });
+
+  updateUI();
+}
+
+// ── UI helpers ────────────────────────────────────────────
+function shakePileTop() {
+  shakePending = false;
+  if (!drawPile.length) return;
+  const card = drawPile[drawPile.length - 1];
+  const lyt  = layout();
+  const x = lyt.pileX, y = lyt.pileY;
+  [5, -5, 4, -4, 0].forEach((dx, i) => setTimeout(() => moveCard(card, x + dx, y, 60), i * 70));
+}
+
+function toggleEasyMode() {
+  easyMode = document.getElementById('easyModeChk').checked;
+  document.getElementById('undoBtn').style.display = easyMode ? '' : 'none';
+  positionAll(false);
+  renderScore();
+}
+
+function updateUI() {
+  const noMoves = !dead && !!topDiscard() && !hasValid();
+  if (noMoves && !shakePending) {
+    shakePending = true;
+    setTimeout(shakePileTop, 150);
+  } else if (!noMoves) {
+    shakePending = false;
+  }
+  stats.render();
+}
+
+// ── Click delegation ──────────────────────────────────────
+document.getElementById('container').addEventListener('click', e => {
+  if (dead || busy) return;
+  const el = e.target.closest('.card');
+  if (!el) return;
+
+  for (let ci = 0; ci < cols.length; ci++) {
+    const col = cols[ci];
+    if (!col.length) continue;
+    const top = col[col.length - 1];
+    if (top.el === el && isValid(top)) { eliminate(ci); return; }
+  }
+
+  if (drawPile.length && drawPile[drawPile.length - 1].el === el) {
+    drawFromPile();
+  }
+});
+
+// ── Button wiring (replaces inline onclick) ───────────────
+document.getElementById('undoBtn').addEventListener('click',    undoMove);
+document.getElementById('newGameBtn').addEventListener('click', newGame);
+document.getElementById('playAgainBtn').addEventListener('click', newGame);
+document.getElementById('easyModeChk').addEventListener('change', toggleEasyMode);
+
+// ── Boot ─────────────────────────────────────────────────
+scaleToFit(SCALE_OPTS);
+initResize(() => { scaleToFit(SCALE_OPTS); positionAll(false); });
+newGame();
+</script>
+</body>
+</html>
