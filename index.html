@@ -744,7 +744,7 @@ document.getElementById('container').addEventListener('click', function(e) {
 function scaleToFit() {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const margin = 16;   // horizontal edge gap (each side)
+  const margin = 8;    // horizontal edge gap (each side)
   const hdr    = 50;   // fixed header height (px)
   const pad    = 14;   // layout padding constant (matches layout())
 
@@ -757,7 +757,7 @@ function scaleToFit() {
 
   const fsW = (vw - 2 * margin) / remsW;
   const fsH = (vh - fixedH - margin) / remsH;
-  const fs  = Math.min(fsW, fsH, 20);   // 20px cap for desktop
+  const fs  = Math.min(fsW, fsH, 32);   // 32px cap for desktop
   document.documentElement.style.fontSize = Math.max(fs, 9) + 'px';
 }
 
