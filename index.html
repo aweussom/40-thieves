@@ -156,13 +156,8 @@ button:active { transform: scale(.94); }
 #ovBox p { color:rgba(255,255,255,.65); font-size:.88rem; margin-bottom:20px; line-height:1.5; }
 .btn-again { background:linear-gradient(135deg,#43a047,#2e7d32); color:#fff; padding:10px 28px; font-size:.9rem; border-radius:24px; }
 
-/* ── Confetti ─────────────────────────────────────────── */
-.cp { position:fixed; border-radius:2px; animation:fall linear forwards; pointer-events:none; z-index:101; }
-@keyframes fall {
-  0%   { transform:translateY(-30px) rotate(0deg);   opacity:1; }
-  80%  { opacity:1; }
-  100% { transform:translateY(110vh)  rotate(720deg); opacity:0; }
-}
+/* ── Win animation ────────────────────────────────────── */
+/* cards are real .card divs driven by JS physics — no extra CSS needed */
 
 /* ── Mobile ───────────────────────────────────────────── */
 @media (max-width: 520px) {
@@ -278,6 +273,7 @@ let dead        = false;
 let busy        = false;
 let easyMode    = false;
 let shakePending = false;
+let winAnimId    = null;
 
 // ── Layout ──────────────────────────────────────────────
 function rem() { return parseFloat(getComputedStyle(document.documentElement).fontSize); }
@@ -348,7 +344,7 @@ function undoMove() {
 function newGame() {
   if (busy) return;
   closeOverlay();
-  clearConfetti();
+  stopWinAnimation();
 
   if (!allCards) allCards = createDeck();
 
@@ -424,7 +420,7 @@ function checkEnd() {
   if (totalCards() === 0) {
     dead = true;
     updateStats(true);
-    setTimeout(() => { spawnConfetti(); showOverlay(true); }, 380);
+    setTimeout(() => { startWinAnimation(); showOverlay(true); }, 380);
   } else if (!drawPile.length && !hasValid()) {
     dead = true;
     updateStats(false);
@@ -582,22 +578,58 @@ function showOverlay(won) {
 }
 function closeOverlay() { document.getElementById('overlay').classList.remove('on'); }
 
-// ── Confetti ──────────────────────────────────────────────
-const CONFETTI_COLORS = ['#f0c040','#00e676','#ff5252','#40c4ff','#e040fb','#ffab40'];
-function spawnConfetti() {
-  for (let i = 0; i < 80; i++) {
-    const el   = document.createElement('div');
-    el.className = 'cp';
-    const size = 6 + Math.random() * 8;
-    el.style.cssText =
-      `left:${Math.random()*100}vw;top:-20px;width:${size}px;height:${size}px;` +
-      `background:${CONFETTI_COLORS[i % CONFETTI_COLORS.length]};` +
-      `animation-delay:${Math.random()*1.4}s;animation-duration:${2+Math.random()*1.5}s;`;
-    document.body.appendChild(el);
-    el.addEventListener('animationend', () => el.remove());
+// ── Win animation (MS Solitaire bouncing cards) ───────────
+function startWinAnimation() {
+  const lyt      = layout();
+  const { cw, ch } = lyt;
+  const floor    = window.innerHeight - ch;
+  const physics  = [];
+
+  // Stagger-launch every card in discard + remaining draw pile
+  const src = [...discardPile, ...drawPile];
+  src.forEach((card, i) => {
+    setTimeout(() => {
+      setFace(card, true);
+      card.el.style.transition = 'none';
+      card.el.style.zIndex = 200 + i;
+      card.el.classList.remove('discard-top', 'valid-move', 'pile-top');
+      physics.push({
+        el: card.el,
+        x:  card.x,
+        y:  card.y,
+        vx: (Math.random() - 0.5) * 16,
+        vy: -(10 + Math.random() * 10)
+      });
+    }, i * 55);
+  });
+
+  function tick() {
+    for (let i = physics.length - 1; i >= 0; i--) {
+      const c = physics[i];
+      c.vy += 0.55;          // gravity
+      c.x  += c.vx;
+      c.y  += c.vy;
+
+      if (c.y >= floor) {
+        c.y  = floor;
+        c.vy = -Math.abs(c.vy) * 0.62;
+        if (Math.abs(c.vy) < 2) c.vy = -(6 + Math.random() * 6); // keep bouncing
+      }
+
+      c.el.style.transform = `translate(${c.x}px,${c.y}px)`;
+
+      // Remove once fully off-screen horizontally
+      if (c.x < -cw * 2 || c.x > window.innerWidth + cw * 2) physics.splice(i, 1);
+    }
+    winAnimId = requestAnimationFrame(tick);
   }
+
+  winAnimId = requestAnimationFrame(tick);
 }
-function clearConfetti() { document.querySelectorAll('.cp').forEach(el => el.remove()); }
+
+function stopWinAnimation() {
+  if (winAnimId) { cancelAnimationFrame(winAnimId); winAnimId = null; }
+}
 
 // ── Click delegation ──────────────────────────────────────
 document.getElementById('container').addEventListener('click', function(e) {
