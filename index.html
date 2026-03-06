@@ -116,7 +116,12 @@ header {
 }
 h1 { font-size: 1.05rem; font-weight: 800; color: #f0c040; letter-spacing: .5px; }
 #statsRow { font-size: .68rem; color: #a5d6a7; margin-top: 2px; }
-.btns { display: flex; gap: 8px; }
+#scoreDisplay {
+  font-size: 1.3rem; font-weight: 800; color: #f0c040;
+  letter-spacing: 1px; text-align: center;
+}
+#scoreDisplay span { font-size: .6rem; color: rgba(255,255,255,.4); display: block; margin-top: -2px; }
+.btns { display: flex; gap: 8px; align-items: center; }
 button {
   border: none; cursor: pointer;
   font-size: .78rem; font-weight: 700; border-radius: 20px; padding: 6px 13px;
@@ -181,6 +186,7 @@ button { touch-action: manipulation; }
     <h1>Forty Thieves</h1>
     <div id="statsRow">W: 0 · P: 0 · 0%</div>
   </div>
+  <div id="scoreDisplay">0<span>SCORE</span></div>
   <div class="btns">
     <button class="btn-undo" id="undoBtn" onclick="undoMove()" disabled style="display:none">↩ Undo</button>
     <label class="easy-lbl"><input type="checkbox" id="easyModeChk" onchange="toggleEasyMode()"> Easy</label>
@@ -274,6 +280,7 @@ let busy        = false;
 let easyMode    = false;
 let shakePending = false;
 let winAnimId    = null;
+let score        = 0;
 
 // ── Layout ──────────────────────────────────────────────
 function rem() { return parseFloat(getComputedStyle(document.documentElement).fontSize); }
@@ -317,12 +324,23 @@ function shuffle(a) {
   return d;
 }
 
+// ── Scoring ──────────────────────────────────────────────
+function cardScore(card) {
+  if (card.suit === 'joker') return 0;
+  const base = (card.rank === 1 || card.rank >= 11) ? 8 : 6;
+  return easyMode ? Math.floor(base / 2) : base;
+}
+function renderScore() {
+  document.getElementById('scoreDisplay').innerHTML = `${score}<span>SCORE</span>`;
+}
+
 // ── Undo ────────────────────────────────────────────────
 function saveState() {
   undoStack.push({
     cols:        cols.map(c => [...c]),
     drawPile:    [...drawPile],
-    discardPile: [...discardPile]
+    discardPile: [...discardPile],
+    score
   });
   if (undoStack.length > 50) undoStack.shift();
   document.getElementById('undoBtn').disabled = false;
@@ -334,6 +352,7 @@ function undoMove() {
   cols        = s.cols;
   drawPile    = s.drawPile;
   discardPile = s.discardPile;
+  score       = s.score;
   dead        = false;
   document.getElementById('undoBtn').disabled = !undoStack.length;
   closeOverlay();
@@ -356,6 +375,8 @@ function newGame() {
   drawPile    = remaining.slice(1);
   undoStack   = [];
   dead        = false;
+  score       = 0;
+  renderScore();
   document.getElementById('undoBtn').disabled = true;
 
   // Reset all cards to pile position, face-down, no state classes
@@ -389,6 +410,8 @@ function eliminate(ci) {
   setTimeout(() => {
     col.pop();
     discardPile.push(card);
+    score += cardScore(card);
+    renderScore();
     busy = false;
     checkEnd();
     positionAll(false);
@@ -541,6 +564,7 @@ function toggleEasyMode() {
   easyMode = document.getElementById('easyModeChk').checked;
   document.getElementById('undoBtn').style.display = easyMode ? '' : 'none';
   positionAll(false);
+  renderScore();
 }
 
 function updateUI() {
@@ -557,7 +581,9 @@ function updateUI() {
 // ── Stats ─────────────────────────────────────────────────
 function loadStats()  { return JSON.parse(localStorage.getItem('ft_stats') || '{"played":0,"won":0}'); }
 function updateStats(won) {
-  const s = loadStats(); s.played++; if (won) s.won++;
+  const s = loadStats();
+  s.played++;
+  if (won) { s.won++; s.highScore = Math.max(s.highScore || 0, score); }
   localStorage.setItem('ft_stats', JSON.stringify(s));
 }
 function renderStats() {
@@ -569,11 +595,12 @@ function renderStats() {
 // ── Overlay ───────────────────────────────────────────────
 function showOverlay(won) {
   const left = totalCards();
+  const hs   = loadStats().highScore || 0;
   document.getElementById('ovBox').className = won ? 'win' : 'lose';
-  document.getElementById('ovTitle').textContent = won ? 'You Win!'  : 'Game Over';
+  document.getElementById('ovTitle').textContent = won ? 'You Win!' : 'Game Over';
   document.getElementById('ovMsg').textContent   = won
-    ? 'All columns cleared! Excellent play!'
-    : `${left} card${left !== 1 ? 's' : ''} left. Better luck next time!`;
+    ? `Score: ${score}${score >= hs ? ' 🏆 New best!' : ''} — All columns cleared!`
+    : `Score: ${score}  ·  ${left} card${left !== 1 ? 's' : ''} left. Better luck next time!`;
   document.getElementById('overlay').classList.add('on');
 }
 function closeOverlay() { document.getElementById('overlay').classList.remove('on'); }
