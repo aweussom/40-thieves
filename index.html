@@ -181,15 +181,6 @@ button:active { transform: scale(.94); }
 /* ── Win animation ────────────────────────────────────── */
 /* cards are real .card divs driven by JS physics — no extra CSS needed */
 
-/* ── Mobile ───────────────────────────────────────────── */
-@media (max-width: 520px) {
-  html { font-size: 11px; }
-  h1   { font-size: .9rem; }
-  .btns button { padding: 5px 10px; font-size: .72rem; }
-}
-@media (max-width: 370px) {
-  html { font-size: 10px; }
-}
 button { touch-action: manipulation; }
 .card  { touch-action: manipulation; }
 </style>
@@ -746,14 +737,42 @@ document.getElementById('container').addEventListener('click', function(e) {
   }
 });
 
+// ── Responsive scaling ────────────────────────────────────
+// Dynamically sets html font-size so the 7-column board fills
+// the available viewport. Capped at 20px so it stays tasteful
+// on large desktop monitors.
+function scaleToFit() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const margin = 16;   // horizontal edge gap (each side)
+  const hdr    = 50;   // fixed header height (px)
+  const pad    = 14;   // layout padding constant (matches layout())
+
+  // Rems consumed by the 7-column layout:
+  //   Width:  7 cards + 6 gaps  = 7*3.875 + 6*0.45  = 29.825 rem
+  //   Height: fixed 92px + (2.5*ch + 4*ov) rem  = 2.5*5.5 + 4*1.45 = 19.55 rem
+  const remsW  = 7 * 3.875 + 6 * 0.45;   // 29.825
+  const remsH  = 2.5 * 5.5 + 4 * 1.45;  // 19.55
+  const fixedH = hdr + 3 * pad;           // 92 px
+
+  const fsW = (vw - 2 * margin) / remsW;
+  const fsH = (vh - fixedH - margin) / remsH;
+  const fs  = Math.min(fsW, fsH, 20);   // 20px cap for desktop
+  document.documentElement.style.fontSize = Math.max(fs, 9) + 'px';
+}
+
 // ── Resize ────────────────────────────────────────────────
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => positionAll(false), 200);
+  resizeTimer = setTimeout(() => { scaleToFit(); positionAll(false); }, 150);
+});
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => { scaleToFit(); positionAll(false); }, 250);
 });
 
 // ── Boot ──────────────────────────────────────────────────
+scaleToFit();
 newGame();
 </script>
 </body>
