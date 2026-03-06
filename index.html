@@ -187,8 +187,8 @@ button { touch-action: manipulation; }
     <div id="statsRow">W: 0 · P: 0 · 0%</div>
   </div>
   <div class="btns">
+    <button class="btn-undo" id="undoBtn" onclick="undoMove()" disabled style="display:none">↩ Undo</button>
     <label class="easy-lbl"><input type="checkbox" id="easyModeChk" onchange="toggleEasyMode()"> Easy</label>
-    <button class="btn-undo" id="undoBtn" onclick="undoMove()" disabled>↩ Undo</button>
     <button class="btn-new"              onclick="newGame()">New Game</button>
   </div>
 </header>
@@ -542,6 +542,7 @@ function shakePileTop() {
 
 function toggleEasyMode() {
   easyMode = document.getElementById('easyModeChk').checked;
+  document.getElementById('undoBtn').style.display = easyMode ? '' : 'none';
   positionAll(false);
 }
 
