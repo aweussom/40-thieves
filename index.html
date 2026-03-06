@@ -127,22 +127,13 @@ button:active { transform: scale(.94); }
 .btn-undo { background: linear-gradient(135deg,#616161,#333);    color:#fff; box-shadow:0 2px 6px rgba(0,0,0,.3); }
 .btn-undo:disabled { opacity:.35; cursor:not-allowed; }
 
-/* ── Floating UI labels ───────────────────────────────── */
-.ui-lbl {
-  position: fixed; z-index: 20; pointer-events: none;
-  font-size: .6rem; text-transform: uppercase; letter-spacing: 1px;
-  color: #81c784; background: rgba(0,0,0,.28); border-radius: 4px; padding: 2px 6px;
-  white-space: nowrap;
+/* ── Easy mode toggle ─────────────────────────────────── */
+.easy-lbl {
+  font-size: .72rem; color: #a5d6a7;
+  display: flex; align-items: center; gap: 5px; cursor: pointer;
+  user-select: none;
 }
-#info-panel {
-  position: fixed; z-index: 20; pointer-events: none;
-  color: #fff; text-align: center; line-height: 1.6;
-}
-#elimInfo  { font-size: .82rem; color: #a5d6a7; }
-#validHint { font-size: .72rem; color: #69f0ae; }
-#noMoves   { font-size: .72rem; color: #ffb74d; animation: blink 1s step-start infinite; }
-#drawLeft  { font-size: .65rem; color: rgba(255,255,255,.4); }
-@keyframes blink { 50% { opacity: .4; } }
+.easy-lbl input { cursor: pointer; accent-color: #69f0ae; }
 
 /* ── Win/Lose overlay ─────────────────────────────────── */
 #overlay {
@@ -190,21 +181,13 @@ button { touch-action: manipulation; }
 
 <div id="container"></div>
 
-<span id="lbl-current" class="ui-lbl"></span>
-<span id="lbl-pile"    class="ui-lbl"></span>
-<div  id="info-panel">
-  <div id="elimInfo"></div>
-  <div id="validHint"></div>
-  <div id="noMoves" style="display:none">No valid moves — draw from pile!</div>
-  <div id="drawLeft"></div>
-</div>
-
 <header>
   <div>
     <h1>Forty Thieves</h1>
     <div id="statsRow">W: 0 · P: 0 · 0%</div>
   </div>
   <div class="btns">
+    <label class="easy-lbl"><input type="checkbox" id="easyModeChk" onchange="toggleEasyMode()"> Easy</label>
     <button class="btn-undo" id="undoBtn" onclick="undoMove()" disabled>↩ Undo</button>
     <button class="btn-new"              onclick="newGame()">New Game</button>
   </div>
@@ -293,6 +276,8 @@ let discardPile = [];   // left:  face-up, top = reference
 let undoStack   = [];
 let dead        = false;
 let busy        = false;
+let easyMode    = false;
+let shakePending = false;
 
 // ── Layout ──────────────────────────────────────────────
 function rem() { return parseFloat(getComputedStyle(document.documentElement).fontSize); }
@@ -472,11 +457,11 @@ function positionAll(dealAnim) {
         // Flip face-up after the card arrives
         setTimeout(() => {
           setFace(card, true);
-          card.el.classList.toggle('valid-move', isTop && !dead && isValid(card));
+          card.el.classList.toggle('valid-move', easyMode && isTop && !dead && isValid(card));
         }, delay + 340);
       } else {
         setFace(card, true);
-        card.el.classList.toggle('valid-move', isTop && !dead && isValid(card));
+        card.el.classList.toggle('valid-move', easyMode && isTop && !dead && isValid(card));
         moveCard(card, x, y, 80);
       }
       positioned.add(card);
@@ -542,50 +527,32 @@ function positionAll(dealAnim) {
     moveCard(card, -lyt.cw * 2, -lyt.ch * 2, 1);
   });
 
-  updateUI(lyt);
+  updateUI();
 }
 
 // ── UI labels ─────────────────────────────────────────────
-function updateUI(lyt) {
-  const ref  = topDiscard();
-  const elim = 35 - totalCards();
-  const left = drawPile.length;
+function shakePileTop() {
+  if (!drawPile.length) return;
+  const card = drawPile[drawPile.length - 1];
+  const lyt  = layout();
+  const x = lyt.pileX, y = lyt.pileY;
+  const offsets = [5, -5, 4, -4, 0];
+  offsets.forEach((dx, i) => setTimeout(() => moveCard(card, x + dx, y, 60), i * 70));
+}
 
-  document.getElementById('elimInfo').textContent = `${elim} / 35 eliminated`;
-  document.getElementById('drawLeft').textContent = `${left} draw card${left !== 1 ? 's' : ''} left`;
+function toggleEasyMode() {
+  easyMode = document.getElementById('easyModeChk').checked;
+  positionAll(false);
+}
 
-  if (ref) {
-    if (ref.suit === 'joker') {
-      document.getElementById('validHint').textContent = 'Match: Any card (Joker!)';
-    } else {
-      const lo = ref.rank > 1  ? RANK_NAMES[ref.rank - 1] : null;
-      const hi = ref.rank < 13 ? RANK_NAMES[ref.rank + 1] : null;
-      document.getElementById('validHint').textContent = 'Match: ' + [lo, hi].filter(Boolean).join(' or ');
-    }
-  } else {
-    document.getElementById('validHint').textContent = '';
+function updateUI() {
+  const noMoves = !dead && !!topDiscard() && !hasValid();
+  if (noMoves && !shakePending) {
+    shakePending = true;
+    setTimeout(shakePileTop, 150);
+  } else if (!noMoves) {
+    shakePending = false;
   }
-
-  const noMoves = !dead && !!ref && !hasValid();
-  document.getElementById('noMoves').style.display = noMoves ? '' : 'none';
-
-  const lblC = document.getElementById('lbl-current');
-  lblC.textContent = 'Discard';
-  lblC.style.left  = (lyt.drawX - lyt.cw / 2) + 'px';
-  lblC.style.top   = (lyt.drawY - lyt.ch / 2 - 20) + 'px';
-
-  const lblP = document.getElementById('lbl-pile');
-  lblP.textContent = `Draw (${left})`;
-  lblP.style.left  = (lyt.pileX - lyt.cw / 2) + 'px';
-  lblP.style.top   = (lyt.pileY - lyt.ch / 2 - 20) + 'px';
-
-  const panel = document.getElementById('info-panel');
-  panel.style.left      = '50%';
-  panel.style.right     = 'auto';
-  panel.style.transform = 'translateX(-50%)';
-  panel.style.top       = (lyt.drawY - lyt.ch * 0.85) + 'px';
-  panel.style.whiteSpace = 'nowrap';
-
   renderStats();
 }
 
