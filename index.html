@@ -532,6 +532,7 @@ function positionAll(dealAnim) {
 
 // ── UI labels ─────────────────────────────────────────────
 function shakePileTop() {
+  shakePending = false;   // allow next draw to shake again if still no moves
   if (!drawPile.length) return;
   const card = drawPile[drawPile.length - 1];
   const lyt  = layout();
