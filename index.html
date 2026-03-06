@@ -359,6 +359,57 @@ function undoMove() {
   positionAll(false);
 }
 
+// ── Smart deal: pick the most-winnable shuffle ───────────
+function greedySolve(shuffled) {
+  // Clone into plain rank/suit objects (no DOM) for fast simulation
+  const tCols = Array.from({ length: 7 }, () => []);
+  for (let i = 0; i < 35; i++) {
+    const c = shuffled[i];
+    tCols[i % 7].push({ rank: c.rank, suit: c.suit });
+  }
+  const remaining  = shuffled.slice(35);
+  let tDiscard     = [{ rank: remaining[0].rank, suit: remaining[0].suit }];
+  let tDraw        = remaining.slice(1).map(c => ({ rank: c.rank, suit: c.suit }));
+  let cleared      = 0;
+
+  const valid = (c, ref) =>
+    ref.suit === 'joker' || c.suit === 'joker' || Math.abs(c.rank - ref.rank) === 1;
+
+  let progress = true;
+  while (progress) {
+    progress = false;
+    const ref = tDiscard[tDiscard.length - 1];
+    for (let ci = 0; ci < 7; ci++) {
+      const col = tCols[ci];
+      if (!col.length) continue;
+      const top = col[col.length - 1];
+      if (valid(top, ref)) {
+        col.pop();
+        tDiscard.push(top);
+        if (col.length === 0) cleared++;
+        progress = true;
+        break;   // restart scan with new reference
+      }
+    }
+    if (!progress && tDraw.length) {
+      tDiscard.push(tDraw.pop());
+      progress = true;
+    }
+  }
+  return cleared;
+}
+
+function bestShuffle() {
+  let best = null, bestScore = -1;
+  for (let i = 0; i < 25; i++) {
+    const s = shuffle(allCards);
+    const sc = greedySolve(s);
+    if (sc > bestScore) { bestScore = sc; best = s; }
+    if (bestScore >= 6) break;   // good enough — stop early
+  }
+  return best;
+}
+
 // ── New game ─────────────────────────────────────────────
 function newGame() {
   if (busy) return;
@@ -367,7 +418,7 @@ function newGame() {
 
   if (!allCards) allCards = createDeck();
 
-  const shuffled  = shuffle(allCards);
+  const shuffled  = bestShuffle();
   cols        = Array.from({ length: 7 }, () => []);
   for (let i = 0; i < 35; i++) cols[i % 7].push(shuffled[i]);
   const remaining = shuffled.slice(35);
