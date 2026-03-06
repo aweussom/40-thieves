@@ -311,11 +311,12 @@ function layout() {
   const totalColW = 7 * cw + 6 * gap;
   const col0X     = (window.innerWidth - totalColW) / 2 + cw / 2;
 
-  // Piles sit at the bottom of the screen
-  const pileY = window.innerHeight - pad - ch / 2;
-  const drawX = pad + cw / 2;                          // discard (left)
-  const pileX = window.innerWidth - pad - cw / 2;      // draw    (right)
-  const drawY = pileY;
+  // Piles: centred just below the tallest possible column (5 cards)
+  const cx    = window.innerWidth / 2;
+  const drawX = cx - cw / 2 - gap * 2;   // discard (left of centre)
+  const pileX = cx + cw / 2 + gap * 2;   // draw    (right of centre)
+  const drawY = colsY + ch + 4 * ov + pad * 2 + ch / 2;
+  const pileY = drawY;
 
   return { r, cw, ch, hdr, pad, ov, gap, drawX, drawY, pileX, pileY, colsY, col0X };
 }
@@ -579,9 +580,11 @@ function updateUI(lyt) {
   lblP.style.top   = (lyt.pileY - lyt.ch / 2 - 20) + 'px';
 
   const panel = document.getElementById('info-panel');
-  panel.style.left  = (lyt.drawX + lyt.cw / 2 + 10) + 'px';
-  panel.style.right = (window.innerWidth - lyt.pileX + lyt.cw / 2 + 10) + 'px';
-  panel.style.top   = (lyt.drawY - lyt.ch / 2) + 'px';
+  panel.style.left      = '50%';
+  panel.style.right     = 'auto';
+  panel.style.transform = 'translateX(-50%)';
+  panel.style.top       = (lyt.drawY - lyt.ch * 0.85) + 'px';
+  panel.style.whiteSpace = 'nowrap';
 
   renderStats();
 }
