@@ -179,6 +179,11 @@ button:active { transform: scale(.94); }
   h1   { font-size: .9rem; }
   .btns button { padding: 5px 10px; font-size: .72rem; }
 }
+@media (max-width: 370px) {
+  html { font-size: 10px; }
+}
+button { touch-action: manipulation; }
+.card  { touch-action: manipulation; }
 </style>
 </head>
 <body>
@@ -301,14 +306,16 @@ function layout() {
   const ov  = 1.45 * r;
   const gap = 0.45 * r;
 
-  const drawX = pad + cw / 2;
-  const drawY = hdr + pad + ch / 2;
-  const pileX = window.innerWidth - pad - cw / 2;
-  const pileY = drawY;
-
-  const colsY     = hdr + pad + ch + pad;
+  // Columns start directly below header
+  const colsY     = hdr + pad;
   const totalColW = 7 * cw + 6 * gap;
   const col0X     = (window.innerWidth - totalColW) / 2 + cw / 2;
+
+  // Piles sit at the bottom of the screen
+  const pileY = window.innerHeight - pad - ch / 2;
+  const drawX = pad + cw / 2;                          // discard (left)
+  const pileX = window.innerWidth - pad - cw / 2;      // draw    (right)
+  const drawY = pileY;
 
   return { r, cw, ch, hdr, pad, ov, gap, drawX, drawY, pileX, pileY, colsY, col0X };
 }
@@ -574,7 +581,7 @@ function updateUI(lyt) {
   const panel = document.getElementById('info-panel');
   panel.style.left  = (lyt.drawX + lyt.cw / 2 + 10) + 'px';
   panel.style.right = (window.innerWidth - lyt.pileX + lyt.cw / 2 + 10) + 'px';
-  panel.style.top   = (lyt.drawY - lyt.ch / 3) + 'px';
+  panel.style.top   = (lyt.drawY - lyt.ch / 2) + 'px';
 
   renderStats();
 }
