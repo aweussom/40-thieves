@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kings Corners — Thieves &amp; Kings</title>
+<link href="https://fonts.googleapis.com/css?family=Ubuntu+Condensed" rel="stylesheet">
+<link rel="stylesheet" href="common/styles.css">
+<style>
+/* ── Grid slots ──────────────────────────────────────── */
+.grid-slot {
+  position: absolute;
+  top: 0; left: 0;
+  width: 3.875rem;
+  height: 5.5rem;
+  border-radius: 7px;
+  border: 2px dashed rgba(255,255,255,.18);
+  background: rgba(0,0,0,.12);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+/* Zone color hints */
+.grid-slot[data-zone="corner"] { border-color: rgba(240,192,64,.3); }
+.grid-slot[data-zone="edge"]   { border-color: rgba(180,180,255,.22); }
+.grid-slot[data-zone="inner"]  { border-color: rgba(255,255,255,.15); }
+/* slot-open: valid target, always clickable (both modes) */
+.grid-slot.slot-open {
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* valid-target: visual highlight — easy mode only */
+.grid-slot.valid-target {
+  border-color: rgba(105,240,174,.6);
+  background: rgba(105,240,174,.08);
+  box-shadow: 0 0 14px rgba(105,240,174,.3);
+}
+/* Current card area label */
+#currentLabel {
+  position: fixed;
+  z-index: 5;
+  font-size: .62rem;
+  color: rgba(255,255,255,.4);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  text-align: center;
+  pointer-events: none;
+}
+/* Cards in elimination phase — selected */
+.card.elim-selected {
+  box-shadow: 0 0 0 2.5px #69f0ae, 0 0 22px rgba(105,240,174,.7), 0 2px 8px rgba(0,0,0,.4);
+}
+/* Cards in elimination phase — valid pair */
+.card.elim-valid {
+  box-shadow: 0 0 0 2.5px #ef5350, 0 0 18px rgba(239,83,80,.55), 0 2px 8px rgba(0,0,0,.4);
+  cursor: pointer;
+}
+.card.elim-valid:hover {
+  box-shadow: 0 0 0 2.5px #ef5350, 0 0 28px rgba(239,83,80,.8), 0 4px 14px rgba(0,0,0,.5);
+}
+/* Cards that cannot be eliminated */
+.card.no-elim {
+  opacity: .55;
+}
+/* Deck remaining badge */
+#deckCount {
+  position: fixed;
+  z-index: 6;
+  font-size: .72rem;
+  font-weight: 800;
+  color: rgba(255,255,255,.5);
+  text-align: center;
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<div id="container"></div>
+
+<div id="currentLabel">Next Card</div>
+<div id="deckCount"></div>
+
+<header>
+  <div>
+    <h1>Kings Corners</h1>
+    <div id="statsRow">W: 0 · P: 0 · 0%</div>
+  </div>
+  <div id="scoreDisplay">0<span>SCORE</span></div>
+  <div class="btns">
+    <button class="btn-undo" id="undoBtn" disabled style="display:none">↩ Undo</button>
+    <label class="easy-lbl"><input type="checkbox" id="easyModeChk"> Easy</label>
+    <button class="btn-new" id="newGameBtn">New Game</button>
+  </div>
+</header>
+
+<div id="overlay">
+  <div id="ovBox">
+    <h2 id="ovTitle"></h2>
+    <p  id="ovMsg"></p>
+    <button class="btn-again" id="playAgainBtn">Play Again</button>
+  </div>
+</div>
+
+<script type="module">
+import { createDeck, moveCard, setFace, shuffle, rem } from './common/cards.js';
+import { scaleToFit, initResize, showOverlay, closeOverlay,
+         startWinAnimation, stopWinAnimation, initStats } from './common/ui.js';
+
+// ── Layout constants ─────────────────────────────────
+// Grid: 4 cols × 4 rows, plus gap between grid and current-card area
+// Width:  4 cards + 3 gaps  = 4*3.875 + 3*0.45 = 16.85 rem
+// Height: 4 cards + 3 gaps + 1 card (current) + gap = 4*5.5 + 3*0.6 + 5.5 + 0.6 = 29.9 rem
+const CARD_W_REM  = 3.875;
+const CARD_H_REM  = 5.5;
+const GAP_REM     = 0.45;
+const GRID_ROWS   = 4;
+const GRID_COLS   = 4;
+const SCALE_OPTS  = {
+  remsW: GRID_COLS * CARD_W_REM + (GRID_COLS - 1) * GAP_REM,
+  remsH: (GRID_ROWS + 1.5) * CARD_H_REM + (GRID_ROWS + 1) * GAP_REM,
+  fixedH: 92
+};
+
+// ── Grid zone definitions ────────────────────────────
+// Indices in a 4×4 grid (row-major)
+//  0  1  2  3
+//  4  5  6  7
+//  8  9 10 11
+// 12 13 14 15
+const CORNERS = new Set([0, 3, 12, 15]);
+const EDGES   = new Set([1, 2, 4, 7, 8, 11, 13, 14]);
+const INNER   = new Set([5, 6, 9, 10]);
+
+// ── Stats ────────────────────────────────────────────
+const stats = initStats('kc_stats');
+
+// ── Game state ───────────────────────────────────────
+let allCards       = null;
+let grid           = [];      // 16 slots, each null or a card
+let slots          = [];      // 16 DOM placeholder divs
+let deck           = [];      // remaining cards to place
+let currentCard    = null;    // card waiting to be placed
+let phase          = 'placing';   // 'placing' | 'eliminating'
+let elimSelected   = null;    // first card selected in elimination
+let undoStack      = [];
+let score          = 0;
+let dead           = false;
+let busy           = false;
+let easyMode       = false;
+
+// ── Layout ───────────────────────────────────────────
+function layout() {
+  const r   = rem();
+  const cw  = CARD_W_REM * r;
+  const ch  = CARD_H_REM * r;
+  const hdr = 50;
+  const pad = 14;
+  const gap = GAP_REM * r;
+  const vGap = 0.6 * r;
+
+  const gridW = GRID_COLS * cw + (GRID_COLS - 1) * gap;
+  const gridH = GRID_ROWS * ch + (GRID_ROWS - 1) * vGap;
+
+  const gridX = (window.innerWidth - gridW) / 2;
+  const gridY = hdr + pad;
+
+  // Current card sits below the grid
+  const curY = gridY + gridH + vGap * 2 + ch / 2;
+  const curX = window.innerWidth / 2;
+
+  return { r, cw, ch, hdr, pad, gap, vGap, gridW, gridH, gridX, gridY, curX, curY };
+}
+
+// Convert grid index to pixel position (top-left of card)
+function cellPos(idx, lyt) {
+  const col = idx % GRID_COLS;
+  const row = Math.floor(idx / GRID_COLS);
+  const x   = lyt.gridX + col * (lyt.cw + lyt.gap);
+  const y   = lyt.gridY + row * (lyt.ch + lyt.vGap);
+  return { x: x + lyt.cw / 2, y: y + lyt.ch / 2 };
+}
+
+// ── Grid slots (visual placeholders) ─────────────────
+function createSlots() {
+  const container = document.getElementById('container');
+  slots = [];
+  for (let i = 0; i < 16; i++) {
+    const el = document.createElement('div');
+    const zone = CORNERS.has(i) ? 'corner' : EDGES.has(i) ? 'edge' : 'inner';
+    el.className = 'grid-slot';
+    el.dataset.idx  = i;
+    el.dataset.zone = zone;
+    container.appendChild(el);
+    slots.push(el);
+  }
+}
+
+function positionSlots(lyt) {
+  slots.forEach((el, idx) => {
+    const { x, y } = cellPos(idx, lyt);
+    el.style.transform = `translate(${x - lyt.cw / 2}px, ${y - lyt.ch / 2}px)`;
+  });
+}
+
+// ── Placement validity ────────────────────────────────
+function validCells(card) {
+  const valid = [];
+  for (let i = 0; i < 16; i++) {
+    if (grid[i] !== null) continue;
+    if (canPlace(card, i)) valid.push(i);
+  }
+  return valid;
+}
+
+function canPlace(card, idx) {
+  if (grid[idx] !== null) return false;
+  const rank = card.rank;
+  if (rank === 13)       return CORNERS.has(idx);         // King → corners only
+  if (rank === 12)       return EDGES.has(idx);           // Queen → edges only
+  if (rank === 11)       return EDGES.has(idx);           // Jack → edges (unverified; same as Queen)
+  // A–10 → anywhere empty
+  return true;
+}
+
+// ── Elimination validity ──────────────────────────────
+function isEliminable(card) {
+  return card && card.rank >= 1 && card.rank <= 10;
+}
+
+function validElimPairs() {
+  const pairs = [];
+  for (let i = 0; i < 16; i++) {
+    if (!grid[i] || !isEliminable(grid[i])) continue;
+    for (let j = i + 1; j < 16; j++) {
+      if (!grid[j] || !isEliminable(grid[j])) continue;
+      if (grid[i].rank + grid[j].rank === 10) pairs.push([i, j]);
+    }
+  }
+  return pairs;
+}
+
+// ── Undo ─────────────────────────────────────────────
+function saveState() {
+  undoStack.push({
+    grid:          [...grid],
+    deck:          [...deck],
+    currentCard,
+    phase,
+    elimSelected,
+    score
+  });
+  if (undoStack.length > 50) undoStack.shift();
+  document.getElementById('undoBtn').disabled = false;
+}
+
+function undoMove() {
+  if (!undoStack.length || busy) return;
+  const s      = undoStack.pop();
+  grid         = s.grid;
+  deck         = s.deck;
+  currentCard  = s.currentCard;
+  phase        = s.phase;
+  elimSelected = s.elimSelected;
+  score        = s.score;
+  dead         = false;
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  closeOverlay();
+  renderScore();
+  positionAll(false);
+}
+
+// ── Scoring ──────────────────────────────────────────
+function cardScore(card) {
+  const base = (card.rank >= 11) ? 10 : card.rank;
+  return easyMode ? Math.ceil(base / 2) : base;
+}
+
+function renderScore() {
+  document.getElementById('scoreDisplay').innerHTML = `${score}<span>SCORE</span>`;
+}
+
+// ── New game ─────────────────────────────────────────
+function newGame() {
+  if (busy) return;
+  closeOverlay();
+  stopWinAnimation();
+
+  if (!allCards) {
+    allCards = createDeck({ includeJokers: false });
+    createSlots();
+  }
+
+  const shuffled = shuffle(allCards);
+  grid         = new Array(16).fill(null);
+  deck         = shuffled.slice(0);
+  currentCard  = deck.shift();
+  phase        = 'placing';
+  elimSelected = null;
+  undoStack    = [];
+  score        = 0;
+  dead         = false;
+  renderScore();
+  document.getElementById('undoBtn').disabled = true;
+
+  // Reset all card positions off-screen
+  const lyt = layout();
+  allCards.forEach(c => {
+    c.el.className = 'card face-down';
+    c.faceUp = false;
+    c.el.style.zIndex = 0;
+    moveCard(c, lyt.curX, lyt.curY, 0);
+  });
+
+  setTimeout(() => positionAll(true), 60);
+}
+
+// ── Place card into grid ──────────────────────────────
+function placeCard(idx) {
+  if (dead || busy || phase !== 'placing' || !currentCard) return;
+  if (!canPlace(currentCard, idx)) return;
+
+  saveState();
+  busy = true;
+
+  const card = currentCard;
+  card.el.classList.remove('valid-move', 'discard-top', 'pile-top');
+  grid[idx] = card;
+  score += cardScore(card);
+  renderScore();
+
+  const lyt = layout();
+  const pos = cellPos(idx, lyt);
+  card.el.style.zIndex = 20 + idx;
+  moveCard(card, pos.x, pos.y, 220);
+
+  // Advance to next card
+  currentCard = deck.length ? deck.shift() : null;
+
+  setTimeout(() => {
+    busy = false;
+    checkEnd();
+    positionAll(false);
+  }, 260);
+}
+
+// ── Elimination ───────────────────────────────────────
+function selectForElim(idx) {
+  if (dead || busy || phase !== 'eliminating') return;
+  const card = grid[idx];
+  if (!card || !isEliminable(card)) return;
+
+  if (elimSelected === null) {
+    elimSelected = idx;
+    positionAll(false);
+  } else if (elimSelected === idx) {
+    // Deselect
+    elimSelected = null;
+    positionAll(false);
+  } else {
+    const a = grid[elimSelected];
+    const b = card;
+    if (a.rank + b.rank !== 10) {
+      // Re-select as new first
+      elimSelected = idx;
+      positionAll(false);
+      return;
+    }
+    // Valid pair — eliminate
+    saveState();
+    busy = true;
+    const idxA = elimSelected;
+    elimSelected = null;
+
+    a.el.classList.remove('elim-selected', 'elim-valid', 'valid-move');
+    b.el.classList.remove('elim-selected', 'elim-valid', 'valid-move');
+
+    const lyt = layout();
+    // Fly both cards off-screen
+    moveCard(a, lyt.curX - lyt.cw, window.innerHeight + lyt.ch, 300);
+    moveCard(b, lyt.curX + lyt.cw, window.innerHeight + lyt.ch, 300);
+
+    score += cardScore(a) + cardScore(b);
+    renderScore();
+
+    setTimeout(() => {
+      grid[idxA] = null;
+      grid[idx]  = null;
+      setFace(a, false);
+      setFace(b, false);
+      moveCard(a, -lyt.cw * 3, -lyt.ch * 3, 0);
+      moveCard(b, -lyt.cw * 3, -lyt.ch * 3, 0);
+      elimSelected = null;
+      busy = false;
+      checkEnd();
+      positionAll(false);
+    }, 340);
+  }
+}
+
+// ── End-game check ────────────────────────────────────
+// Single source of truth for phase transitions and win/lose.
+function checkEnd() {
+  if (dead) return;
+
+  // Draw next card if needed
+  if (!currentCard && deck.length > 0) {
+    currentCard = deck.shift();
+  }
+
+  // Win: all 52 cards have been placed or eliminated
+  if (!currentCard && deck.length === 0) {
+    triggerWin();
+    return;
+  }
+
+  const canPlaceCurrent = currentCard ? validCells(currentCard).length > 0 : false;
+  const pairs           = validElimPairs();
+
+  if (canPlaceCurrent) {
+    phase = 'placing';
+  } else if (pairs.length > 0) {
+    phase = 'eliminating';
+    elimSelected = null;
+  } else {
+    triggerLose();
+  }
+}
+
+function triggerWin() {
+  dead = true;
+  stats.update(true, score);
+  setTimeout(() => {
+    const lyt = layout();
+    const placed = grid.filter(Boolean);
+    startWinAnimation(placed, lyt.cw, lyt.ch);
+    const hs = stats.load().highScore || 0;
+    showOverlay(true, 'You Win!',
+      `Score: ${score}${score >= hs ? ' 🏆 New best!' : ''} — All cards placed!`);
+  }, 380);
+}
+
+function triggerLose() {
+  dead = true;
+  stats.update(false, score);
+  setTimeout(() => {
+    const remaining = deck.length + (currentCard ? 1 : 0);
+    showOverlay(false, 'Game Over',
+      `Score: ${score}  ·  ${remaining} card${remaining !== 1 ? 's' : ''} couldn't be placed.`);
+  }, 300);
+}
+
+// ── Core render ───────────────────────────────────────
+function positionAll(dealAnim) {
+  const lyt = layout();
+
+  // Position slot placeholders
+  positionSlots(lyt);
+
+  // Determine valid placement cells — always clickable, highlighted only in easy mode
+  const validIdxs = (phase === 'placing' && currentCard && !dead)
+    ? new Set(validCells(currentCard))
+    : new Set();
+
+  slots.forEach((el, idx) => {
+    const isValid = validIdxs.has(idx) && grid[idx] === null;
+    el.classList.toggle('slot-open',    isValid);
+    el.classList.toggle('valid-target', isValid && easyMode);
+  });
+
+  // Determine elim highlights
+  const pairs = (phase === 'eliminating' && !dead) ? validElimPairs() : [];
+  const elimHighlight = new Set();
+  if (easyMode && elimSelected === null) {
+    pairs.forEach(([a, b]) => { elimHighlight.add(a); elimHighlight.add(b); });
+  } else if (elimSelected !== null) {
+    // Highlight valid partners for the selected card
+    const selRank = grid[elimSelected]?.rank;
+    for (let i = 0; i < 16; i++) {
+      if (grid[i] && i !== elimSelected && grid[i].rank + selRank === 10) {
+        elimHighlight.add(i);
+      }
+    }
+  }
+
+  // Position placed grid cards
+  for (let idx = 0; idx < 16; idx++) {
+    const card = grid[idx];
+    if (!card) continue;
+    const pos = cellPos(idx, lyt);
+    card.el.style.zIndex = 20 + idx;
+
+    const isSelected  = elimSelected === idx;
+    const isHighlight = elimHighlight.has(idx);
+    const isFaceCard  = card.rank >= 11;
+
+    card.el.classList.remove('valid-move', 'discard-top', 'pile-top', 'elim-selected', 'elim-valid', 'no-elim');
+
+    if (phase === 'eliminating' && !dead) {
+      if (isSelected)       card.el.classList.add('elim-selected');
+      else if (isHighlight) card.el.classList.add('elim-valid');
+      else if (isFaceCard)  card.el.classList.add('no-elim');
+    }
+
+    if (dealAnim) {
+      setFace(card, false);
+      const delay = idx * 40;
+      moveCard(card, pos.x, pos.y, 300, delay);
+      setTimeout(() => setFace(card, true), delay + 300);
+    } else {
+      setFace(card, true);
+      moveCard(card, pos.x, pos.y, 60);
+    }
+  }
+
+  // Current card (to be placed)
+  if (currentCard) {
+    const card = currentCard;
+    card.el.style.zIndex = 90;
+    card.el.classList.remove('discard-top', 'pile-top', 'valid-move', 'elim-selected', 'elim-valid', 'no-elim');
+    if (phase === 'placing' && !dead) card.el.classList.add('pile-top');
+    if (dealAnim) {
+      const delay = 16 * 40;
+      moveCard(card, lyt.curX, lyt.curY, 300, delay);
+      setTimeout(() => setFace(card, true), delay + 300);
+    } else {
+      setFace(card, true);
+      moveCard(card, lyt.curX, lyt.curY, 80);
+    }
+  }
+
+  // Remaining deck cards — stack behind current card (face-down)
+  deck.forEach((card, idx) => {
+    const depthFromTop = deck.length - 1 - idx;
+    const visualDepth  = Math.min(depthFromTop, 3);
+    card.el.style.zIndex = 80 - depthFromTop;
+    card.el.classList.remove('valid-move', 'discard-top', 'pile-top', 'elim-selected', 'elim-valid', 'no-elim');
+    setFace(card, false);
+    moveCard(card,
+      lyt.curX - visualDepth * 0.8,
+      lyt.curY - visualDepth * 0.8,
+      dealAnim ? 1 : 1
+    );
+  });
+
+  // Hide all other cards off-screen
+  const active = new Set([...grid.filter(Boolean), ...deck, ...(currentCard ? [currentCard] : [])]);
+  allCards.forEach(card => {
+    if (active.has(card)) return;
+    card.el.style.zIndex = 0;
+    card.el.classList.remove('valid-move', 'discard-top', 'pile-top', 'elim-selected', 'elim-valid', 'no-elim');
+    moveCard(card, -lyt.cw * 3, -lyt.ch * 3, 1);
+  });
+
+  // Position labels
+  positionLabels(lyt);
+
+  // Update stats row
+  stats.render();
+}
+
+function positionLabels(lyt) {
+  const label = document.getElementById('currentLabel');
+  label.style.left   = `${lyt.curX - 40}px`;
+  label.style.top    = `${lyt.curY + lyt.ch / 2 + 4}px`;
+  label.style.width  = '80px';
+
+  const phaseText = phase === 'eliminating' ? 'Eliminate Pairs' : 'Next Card';
+  label.textContent = dead ? '' : phaseText;
+
+  const deckEl = document.getElementById('deckCount');
+  deckEl.style.left  = `${lyt.curX - 40}px`;
+  deckEl.style.top   = `${lyt.curY - lyt.ch / 2 - 18}px`;
+  deckEl.style.width = '80px';
+  deckEl.textContent = deck.length > 0 ? `${deck.length + (currentCard ? 1 : 0)} left` : '';
+}
+
+// ── Toggle easy mode ──────────────────────────────────
+function toggleEasyMode() {
+  easyMode = document.getElementById('easyModeChk').checked;
+  document.getElementById('undoBtn').style.display = easyMode ? '' : 'none';
+  positionAll(false);
+}
+
+// ── Click delegation ──────────────────────────────────
+document.getElementById('container').addEventListener('click', e => {
+  if (dead || busy) return;
+
+  // Grid slot click (placement) — only slot-open slots have pointer-events: auto
+  const slotEl = e.target.closest('.grid-slot.slot-open');
+  if (slotEl && phase === 'placing') {
+    const idx = parseInt(slotEl.dataset.idx, 10);
+    placeCard(idx);
+    return;
+  }
+
+  // Card click
+  const cardEl = e.target.closest('.card');
+  if (!cardEl) return;
+
+  if (phase === 'eliminating') {
+    // Find which grid index this card occupies
+    for (let i = 0; i < 16; i++) {
+      if (grid[i] && grid[i].el === cardEl) {
+        selectForElim(i);
+        return;
+      }
+    }
+    return;
+  }
+
+  if (phase === 'placing') {
+    // Clicking a card that's IN the grid — find nearest valid slot
+    // (Player may click the card rather than the slot behind it)
+    for (let i = 0; i < 16; i++) {
+      if (grid[i] && grid[i].el === cardEl) return; // already placed, ignore
+    }
+    // If they clicked the current card or deck, do nothing (no draw needed)
+  }
+});
+
+// ── Button wiring ─────────────────────────────────────
+document.getElementById('undoBtn').addEventListener('click',     undoMove);
+document.getElementById('newGameBtn').addEventListener('click',  newGame);
+document.getElementById('playAgainBtn').addEventListener('click', newGame);
+document.getElementById('easyModeChk').addEventListener('change', toggleEasyMode);
+
+// ── Boot ─────────────────────────────────────────────
+scaleToFit(SCALE_OPTS);
+initResize(() => { scaleToFit(SCALE_OPTS); positionAll(false); });
+newGame();
+</script>
+</body>
+</html>
