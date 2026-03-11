@@ -541,13 +541,12 @@ function checkEnd() {
 
   // Grid has empty slots
   if (phase === 'eliminating') {
-    // Player can continue eliminating if moves exist, or click deck to refill
-    if (hasMoves && (deck.length > 0 || currentCard)) return;
-    if (hasMoves && deck.length === 0 && !currentCard) return; // keep eliminating
+    // Player can continue eliminating if moves exist
+    if (hasMoves) return;
 
-    // No more moves — check if we can resume placing
-    if (deck.length > 0 || currentCard) {
-      if (!currentCard) currentCard = deck.shift();
+    // No more moves — auto-transition to placing or end game
+    if (deck.length > 0) {
+      currentCard = deck.shift();
       phase = 'placing';
     } else {
       // Deck empty, no more eliminations
@@ -727,8 +726,17 @@ function positionLabels(lyt) {
 
   const isElim = phase === 'eliminating' && !dead;
   const canRefill = isElim && deck.length > 0 && grid.some(c => c === null);
+  const elimMoves = isElim ? validElimPairs() : [];
+
+  // Safety: if we're in elimination with no moves, trigger end immediately
+  if (isElim && elimMoves.length === 0 && !busy) {
+    checkEnd();
+    return;
+  }
+
   const phaseText = isElim
-    ? (canRefill ? 'Click Deck to Deal' : 'Eliminate 10s')
+    ? (canRefill ? 'Click Deck to Deal'
+       : `Eliminate 10s  (${elimMoves.length} move${elimMoves.length !== 1 ? 's' : ''})`)
     : (currentCard ? 'Next Card' : '');
   label.textContent = dead ? '' : phaseText;
 
