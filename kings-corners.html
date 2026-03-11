@@ -45,6 +45,38 @@
   text-align: center;
   pointer-events: none;
 }
+/* ── Help overlay ─────────────────────────────────────── */
+#helpOverlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.72); backdrop-filter: blur(8px);
+  z-index: 110; align-items: center; justify-content: center;
+}
+#helpOverlay.on { display: flex; }
+#helpBox {
+  background: linear-gradient(145deg,#1e3820,#0e1e10);
+  border: 1px solid rgba(255,255,255,.1); border-radius: 20px;
+  padding: 28px 32px; text-align: left; max-width: 370px; width: 90vw;
+  max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 24px 60px rgba(0,0,0,.6); color: #fff;
+  animation: popIn .4s cubic-bezier(.34,1.56,.64,1);
+}
+#helpBox h2 { font-size: 1.35rem; margin: 0 0 14px; color: #f0c040; text-align: center; }
+#helpBox h3 { font-size: .82rem; margin: 14px 0 6px; color: #69f0ae; text-transform: uppercase; letter-spacing: .5px; }
+#helpBox p, #helpBox li {
+  font-size: .78rem; color: rgba(255,255,255,.7); line-height: 1.55; margin: 0 0 6px;
+}
+#helpBox ul { padding-left: 18px; margin: 0 0 8px; }
+#helpBox .help-close {
+  display: block; margin: 18px auto 0; background: linear-gradient(135deg,#43a047,#2e7d32);
+  color: #fff; padding: 8px 26px; font-size: .82rem; border-radius: 20px; border: none; cursor: pointer;
+}
+.btn-help {
+  background: linear-gradient(135deg,#546e7a,#37474f); color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  width: 28px; height: 28px; padding: 0; font-size: .82rem;
+  display: flex; align-items: center; justify-content: center;
+}
+
 /* Cards in elimination phase — selected */
 .card.elim-selected {
   box-shadow: 0 0 0 2.5px #69f0ae, 0 0 22px rgba(105,240,174,.7), 0 2px 8px rgba(0,0,0,.4);
@@ -89,6 +121,7 @@
   <div class="btns">
     <button class="btn-undo" id="undoBtn" disabled style="display:none">↩ Undo</button>
     <label class="easy-lbl"><input type="checkbox" id="easyModeChk"> Easy</label>
+    <button class="btn-help" id="helpBtn">?</button>
     <button class="btn-new" id="newGameBtn">New Game</button>
   </div>
 </header>
@@ -98,6 +131,38 @@
     <h2 id="ovTitle"></h2>
     <p  id="ovMsg"></p>
     <button class="btn-again" id="playAgainBtn">Play Again</button>
+  </div>
+</div>
+
+<div id="helpOverlay">
+  <div id="helpBox">
+    <h2>Kings Corners Rules</h2>
+
+    <h3>🂡 Phase 1 — Placement</h3>
+    <p>Fill a 4×4 grid one card at a time from a shuffled deck:</p>
+    <ul>
+      <li><strong>Kings (K)</strong> → corner cells only</li>
+      <li><strong>Queens (Q) &amp; Jacks (J)</strong> → edge cells only (non-corner border)</li>
+      <li><strong>Ace – 10</strong> → any empty cell</li>
+    </ul>
+    <p>If the current card has no valid cell, the game is lost.</p>
+
+    <h3>🂡 Phase 2 — Elimination</h3>
+    <p>Once the grid is full, remove pairs of number cards (A–10) that sum to 10:</p>
+    <ul>
+      <li>A(1)+9, 2+8, 3+7, 4+6, 5+5</li>
+      <li>Face cards (J, Q, K) cannot be eliminated</li>
+      <li>Tap one card, then tap its partner to remove both</li>
+    </ul>
+    <p>Keep eliminating until no pairs remain.</p>
+
+    <h3>⭐ Scoring</h3>
+    <p>Each card scores its face value when placed or eliminated. Face cards score 10. Higher is better!</p>
+
+    <h3>💡 Easy Mode</h3>
+    <p>Highlights valid placement cells and eliminable pairs. Enables Undo. Score is halved.</p>
+
+    <button class="help-close" id="helpCloseBtn">Got it</button>
   </div>
 </div>
 
@@ -624,6 +689,15 @@ document.getElementById('undoBtn').addEventListener('click',     undoMove);
 document.getElementById('newGameBtn').addEventListener('click',  newGame);
 document.getElementById('playAgainBtn').addEventListener('click', newGame);
 document.getElementById('easyModeChk').addEventListener('change', toggleEasyMode);
+document.getElementById('helpBtn').addEventListener('click', () => {
+  document.getElementById('helpOverlay').classList.add('on');
+});
+document.getElementById('helpCloseBtn').addEventListener('click', () => {
+  document.getElementById('helpOverlay').classList.remove('on');
+});
+document.getElementById('helpOverlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) document.getElementById('helpOverlay').classList.remove('on');
+});
 
 // ── Boot ─────────────────────────────────────────────
 scaleToFit(SCALE_OPTS);
