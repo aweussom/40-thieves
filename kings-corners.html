@@ -165,8 +165,8 @@ function layout() {
   const gridY = hdr + pad;
 
   // Current card sits below the grid
-  const curY = gridY + gridH + vGap * 2 + ch / 2;
-  const curX = window.innerWidth / 2;
+  const curY = gridY + gridH + vGap * 2;
+  const curX = (window.innerWidth - cw) / 2;
 
   return { r, cw, ch, hdr, pad, gap, vGap, gridW, gridH, gridX, gridY, curX, curY };
 }
@@ -175,9 +175,10 @@ function layout() {
 function cellPos(idx, lyt) {
   const col = idx % GRID_COLS;
   const row = Math.floor(idx / GRID_COLS);
-  const x   = lyt.gridX + col * (lyt.cw + lyt.gap);
-  const y   = lyt.gridY + row * (lyt.ch + lyt.vGap);
-  return { x: x + lyt.cw / 2, y: y + lyt.ch / 2 };
+  return {
+    x: lyt.gridX + col * (lyt.cw + lyt.gap),
+    y: lyt.gridY + row * (lyt.ch + lyt.vGap)
+  };
 }
 
 // ── Grid slots (visual placeholders) ─────────────────
@@ -198,7 +199,7 @@ function createSlots() {
 function positionSlots(lyt) {
   slots.forEach((el, idx) => {
     const { x, y } = cellPos(idx, lyt);
-    el.style.transform = `translate(${x - lyt.cw / 2}px, ${y - lyt.ch / 2}px)`;
+    el.style.transform = `translate(${x}px, ${y}px)`;
   });
 }
 
@@ -560,16 +561,16 @@ function positionAll(dealAnim) {
 
 function positionLabels(lyt) {
   const label = document.getElementById('currentLabel');
-  label.style.left   = `${lyt.curX - 40}px`;
-  label.style.top    = `${lyt.curY + lyt.ch / 2 + 4}px`;
+  label.style.left   = `${lyt.curX + lyt.cw / 2 - 40}px`;
+  label.style.top    = `${lyt.curY + lyt.ch + 4}px`;
   label.style.width  = '80px';
 
   const phaseText = phase === 'eliminating' ? 'Eliminate Pairs' : 'Next Card';
   label.textContent = dead ? '' : phaseText;
 
   const deckEl = document.getElementById('deckCount');
-  deckEl.style.left  = `${lyt.curX - 40}px`;
-  deckEl.style.top   = `${lyt.curY - lyt.ch / 2 - 18}px`;
+  deckEl.style.left  = `${lyt.curX + lyt.cw / 2 - 40}px`;
+  deckEl.style.top   = `${lyt.curY - 18}px`;
   deckEl.style.width = '80px';
   deckEl.textContent = deck.length > 0 ? `${deck.length + (currentCard ? 1 : 0)} left` : '';
 }
