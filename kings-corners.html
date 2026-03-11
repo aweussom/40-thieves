@@ -21,7 +21,8 @@
 }
 /* Zone color hints */
 .grid-slot[data-zone="corner"] { border-color: rgba(240,192,64,.3); }
-.grid-slot[data-zone="edge"]   { border-color: rgba(180,180,255,.22); }
+.grid-slot[data-zone="queen"]  { border-color: rgba(180,180,255,.22); }
+.grid-slot[data-zone="jack"]   { border-color: rgba(140,220,255,.22); }
 .grid-slot[data-zone="inner"]  { border-color: rgba(255,255,255,.15); }
 /* slot-open: valid target, always clickable (both modes) */
 .grid-slot.slot-open {
@@ -44,6 +45,20 @@
   text-transform: uppercase;
   text-align: center;
   pointer-events: none;
+}
+/* Deck click target during elimination */
+.deck-clickable {
+  position: absolute;
+  width: 3.875rem; height: 5.5rem;
+  border-radius: 7px; cursor: pointer;
+  z-index: 95; pointer-events: auto;
+  border: 2px dashed rgba(105,240,174,.45);
+  background: rgba(105,240,174,.06);
+  box-sizing: border-box;
+}
+.deck-clickable:hover {
+  border-color: rgba(105,240,174,.7);
+  background: rgba(105,240,174,.12);
 }
 /* ── Help overlay ─────────────────────────────────────── */
 #helpOverlay {
@@ -139,28 +154,31 @@
     <h2>Kings Corners Rules</h2>
 
     <h3>🂡 Phase 1 — Placement</h3>
-    <p>Fill a 4×4 grid one card at a time from a shuffled deck:</p>
+    <p>Fill the 4×4 grid one card at a time from a shuffled deck:</p>
     <ul>
       <li><strong>Kings (K)</strong> → corner cells only</li>
-      <li><strong>Queens (Q) &amp; Jacks (J)</strong> → edge cells only (non-corner border)</li>
+      <li><strong>Queens (Q)</strong> → left &amp; right side cells</li>
+      <li><strong>Jacks (J)</strong> → top &amp; bottom side cells</li>
       <li><strong>Ace – 10</strong> → any empty cell</li>
     </ul>
-    <p>If the current card has no valid cell, the game is lost.</p>
+    <p>If a face card appears but its zone is full, the game is lost.</p>
 
     <h3>🂡 Phase 2 — Elimination</h3>
-    <p>Once the grid is full, remove pairs of number cards (A–10) that sum to 10:</p>
+    <p>Once the grid is full, remove number cards:</p>
     <ul>
-      <li>A(1)+9, 2+8, 3+7, 4+6, 5+5</li>
-      <li>Face cards (J, Q, K) cannot be eliminated</li>
-      <li>Tap one card, then tap its partner to remove both</li>
+      <li>Tap any <strong>10</strong> to remove it instantly</li>
+      <li>Tap two cards that <strong>sum to 10</strong> (A+9, 2+8, 3+7, 4+6, 5+5)</li>
+      <li>Face cards (J, Q, K) cannot be removed</li>
     </ul>
-    <p>Keep eliminating until no pairs remain.</p>
+
+    <h3>🂡 Refill</h3>
+    <p>After eliminating, click the <strong>deck</strong> to deal new cards into the empty slots. Repeat until the deck runs out.</p>
 
     <h3>⭐ Scoring</h3>
     <p>Each card scores its face value when placed or eliminated. Face cards score 10. Higher is better!</p>
 
     <h3>💡 Easy Mode</h3>
-    <p>Highlights valid placement cells and eliminable pairs. Enables Undo. Score is halved.</p>
+    <p>Highlights valid placement cells and eliminable cards. Enables Undo. Score is halved.</p>
 
     <button class="help-close" id="helpCloseBtn">Got it</button>
   </div>
@@ -192,9 +210,10 @@ const SCALE_OPTS  = {
 //  4  5  6  7
 //  8  9 10 11
 // 12 13 14 15
-const CORNERS = new Set([0, 3, 12, 15]);
-const EDGES   = new Set([1, 2, 4, 7, 8, 11, 13, 14]);
-const INNER   = new Set([5, 6, 9, 10]);
+const CORNERS  = new Set([0, 3, 12, 15]);
+const SIDES_LR = new Set([4, 7, 8, 11]);         // Queens: left / right edges
+const SIDES_TB = new Set([1, 2, 13, 14]);         // Jacks:  top / bottom edges
+const INNER    = new Set([5, 6, 9, 10]);
 
 // ── Stats ────────────────────────────────────────────
 const stats = initStats('kc_stats');
@@ -252,7 +271,8 @@ function createSlots() {
   slots = [];
   for (let i = 0; i < 16; i++) {
     const el = document.createElement('div');
-    const zone = CORNERS.has(i) ? 'corner' : EDGES.has(i) ? 'edge' : 'inner';
+    const zone = CORNERS.has(i) ? 'corner' : SIDES_LR.has(i) ? 'queen'
+               : SIDES_TB.has(i) ? 'jack' : 'inner';
     el.className = 'grid-slot';
     el.dataset.idx  = i;
     el.dataset.zone = zone;
@@ -281,10 +301,10 @@ function validCells(card) {
 function canPlace(card, idx) {
   if (grid[idx] !== null) return false;
   const rank = card.rank;
-  if (rank === 13)       return CORNERS.has(idx);         // King → corners only
-  if (rank === 12)       return EDGES.has(idx);           // Queen → edges only
-  if (rank === 11)       return EDGES.has(idx);           // Jack → edges (unverified; same as Queen)
-  // A–10 → anywhere empty
+  if (rank === 13)       return CORNERS.has(idx);          // King → corners
+  if (rank === 12)       return SIDES_LR.has(idx);         // Queen → left/right sides
+  if (rank === 11)       return SIDES_TB.has(idx);         // Jack → top/bottom sides
+  // A–10 → any empty cell
   return true;
 }
 
@@ -297,6 +317,9 @@ function validElimPairs() {
   const pairs = [];
   for (let i = 0; i < 16; i++) {
     if (!grid[i] || !isEliminable(grid[i])) continue;
+    // Single 10 removal
+    if (grid[i].rank === 10) pairs.push([i]);
+    // Pairs summing to 10
     for (let j = i + 1; j < 16; j++) {
       if (!grid[j] || !isEliminable(grid[j])) continue;
       if (grid[i].rank + grid[j].rank === 10) pairs.push([i, j]);
@@ -415,6 +438,30 @@ function selectForElim(idx) {
   const card = grid[idx];
   if (!card || !isEliminable(card)) return;
 
+  // Single 10 — remove immediately
+  if (card.rank === 10) {
+    saveState();
+    busy = true;
+    if (elimSelected !== null) elimSelected = null;
+    card.el.classList.remove('elim-selected', 'elim-valid', 'valid-move');
+
+    const lyt = layout();
+    moveCard(card, lyt.curX, window.innerHeight + lyt.ch, 300);
+    score += cardScore(card);
+    renderScore();
+
+    setTimeout(() => {
+      grid[idx] = null;
+      setFace(card, false);
+      moveCard(card, -lyt.cw * 3, -lyt.ch * 3, 0);
+      busy = false;
+      checkEnd();
+      positionAll(false);
+    }, 340);
+    return;
+  }
+
+  // Pair selection
   if (elimSelected === null) {
     elimSelected = idx;
     positionAll(false);
@@ -441,7 +488,6 @@ function selectForElim(idx) {
     b.el.classList.remove('elim-selected', 'elim-valid', 'valid-move');
 
     const lyt = layout();
-    // Fly both cards off-screen
     moveCard(a, lyt.curX - lyt.cw, window.innerHeight + lyt.ch, 300);
     moveCard(b, lyt.curX + lyt.cw, window.innerHeight + lyt.ch, 300);
 
@@ -455,7 +501,6 @@ function selectForElim(idx) {
       setFace(b, false);
       moveCard(a, -lyt.cw * 3, -lyt.ch * 3, 0);
       moveCard(b, -lyt.cw * 3, -lyt.ch * 3, 0);
-      elimSelected = null;
       busy = false;
       checkEnd();
       positionAll(false);
@@ -463,32 +508,106 @@ function selectForElim(idx) {
   }
 }
 
+// ── Refill: deal cards from deck into empty grid slots ──
+function refillGrid() {
+  if (dead || busy || deck.length === 0) return;
+  saveState();
+  busy = true;
+  elimSelected = null;
+
+  // Deal into empty slots
+  const empties = [];
+  for (let i = 0; i < 16; i++) { if (grid[i] === null) empties.push(i); }
+
+  const lyt = layout();
+  let dealt = 0;
+  for (const idx of empties) {
+    if (deck.length === 0) break;
+    const card = deck.shift();
+    grid[idx] = card;
+    score += cardScore(card);
+
+    const pos = cellPos(idx, lyt);
+    card.el.style.zIndex = 20 + idx;
+    const delay = dealt * 80;
+    moveCard(card, pos.x, pos.y, 250, delay);
+    setTimeout(() => setFace(card, true), delay + 250);
+    dealt++;
+  }
+  renderScore();
+
+  const animTime = dealt * 80 + 300;
+  setTimeout(() => {
+    busy = false;
+    checkEnd();
+    positionAll(false);
+  }, animTime);
+}
+
 // ── End-game check ────────────────────────────────────
 // Single source of truth for phase transitions and win/lose.
 function checkEnd() {
   if (dead) return;
 
-  // Draw next card if needed
+  const gridFull = grid.every(c => c !== null);
+  const moves    = validElimPairs();
+  const hasMoves = moves.length > 0;
+
+  // Grid full → must eliminate or lose
+  if (gridFull) {
+    if (hasMoves) {
+      phase = 'eliminating';
+      elimSelected = null;
+      // Stash current card back into deck during elimination
+      if (currentCard) { deck.unshift(currentCard); currentCard = null; }
+    } else {
+      triggerLose();
+    }
+    return;
+  }
+
+  // Grid has empty slots
+  if (phase === 'eliminating') {
+    // Player can continue eliminating if moves exist, or click deck to refill
+    if (hasMoves && (deck.length > 0 || currentCard)) return;
+    if (hasMoves && deck.length === 0 && !currentCard) return; // keep eliminating
+
+    // No more moves — check if we can resume placing
+    if (deck.length > 0 || currentCard) {
+      if (!currentCard) currentCard = deck.shift();
+      phase = 'placing';
+    } else {
+      // Deck empty, no more eliminations
+      const hasNumberCards = grid.some(c => c && c.rank <= 10);
+      if (hasNumberCards) triggerLose();
+      else triggerWin();
+    }
+    return;
+  }
+
+  // Placing phase — draw next card if needed
   if (!currentCard && deck.length > 0) {
     currentCard = deck.shift();
   }
 
-  // Win: all 52 cards have been placed or eliminated
-  if (!currentCard && deck.length === 0) {
-    triggerWin();
+  if (currentCard) {
+    const canPlaceCurrent = validCells(currentCard).length > 0;
+    if (canPlaceCurrent) {
+      phase = 'placing';
+    } else {
+      triggerLose();
+    }
     return;
   }
 
-  const canPlaceCurrent = currentCard ? validCells(currentCard).length > 0 : false;
-  const pairs           = validElimPairs();
-
-  if (canPlaceCurrent) {
-    phase = 'placing';
-  } else if (pairs.length > 0) {
+  // No current card, deck empty, grid not full
+  if (hasMoves) {
     phase = 'eliminating';
     elimSelected = null;
   } else {
-    triggerLose();
+    const hasNumberCards = grid.some(c => c && c.rank <= 10);
+    if (hasNumberCards) triggerLose();
+    else triggerWin();
   }
 }
 
@@ -501,7 +620,7 @@ function triggerWin() {
     startWinAnimation(placed, lyt.cw, lyt.ch);
     const hs = stats.load().highScore || 0;
     showOverlay(true, 'You Win!',
-      `Score: ${score}${score >= hs ? ' 🏆 New best!' : ''} — All cards placed!`);
+      `Score: ${score}${score >= hs ? ' 🏆 New best!' : ''} — Deck cleared!`);
   }, 380);
 }
 
@@ -510,8 +629,11 @@ function triggerLose() {
   stats.update(false, score);
   setTimeout(() => {
     const remaining = deck.length + (currentCard ? 1 : 0);
-    showOverlay(false, 'Game Over',
-      `Score: ${score}  ·  ${remaining} card${remaining !== 1 ? 's' : ''} couldn't be placed.`);
+    const gridFull = grid.every(c => c !== null);
+    const msg = gridFull
+      ? `Score: ${score}  ·  No removable cards.`
+      : `Score: ${score}  ·  ${remaining} card${remaining !== 1 ? 's' : ''} left in deck.`;
+    showOverlay(false, 'Game Over', msg);
   }, 300);
 }
 
@@ -534,10 +656,10 @@ function positionAll(dealAnim) {
   });
 
   // Determine elim highlights
-  const pairs = (phase === 'eliminating' && !dead) ? validElimPairs() : [];
+  const moves = (phase === 'eliminating' && !dead) ? validElimPairs() : [];
   const elimHighlight = new Set();
   if (easyMode && elimSelected === null) {
-    pairs.forEach(([a, b]) => { elimHighlight.add(a); elimHighlight.add(b); });
+    moves.forEach(m => m.forEach(i => elimHighlight.add(i)));
   } else if (elimSelected !== null) {
     // Highlight valid partners for the selected card
     const selRank = grid[elimSelected]?.rank;
@@ -630,7 +752,11 @@ function positionLabels(lyt) {
   label.style.top    = `${lyt.curY + lyt.ch + 4}px`;
   label.style.width  = '80px';
 
-  const phaseText = phase === 'eliminating' ? 'Eliminate Pairs' : 'Next Card';
+  const isElim = phase === 'eliminating' && !dead;
+  const canRefill = isElim && deck.length > 0 && grid.some(c => c === null);
+  const phaseText = isElim
+    ? (canRefill ? 'Click Deck to Deal' : 'Eliminate 10s')
+    : (currentCard ? 'Next Card' : '');
   label.textContent = dead ? '' : phaseText;
 
   const deckEl = document.getElementById('deckCount');
@@ -638,6 +764,22 @@ function positionLabels(lyt) {
   deckEl.style.top   = `${lyt.curY - 18}px`;
   deckEl.style.width = '80px';
   deckEl.textContent = deck.length > 0 ? `${deck.length + (currentCard ? 1 : 0)} left` : '';
+
+  // Show/hide deck click target for refilling during elimination
+  let deckTarget = document.getElementById('deckClickTarget');
+  if (canRefill) {
+    if (!deckTarget) {
+      deckTarget = document.createElement('div');
+      deckTarget.id = 'deckClickTarget';
+      deckTarget.className = 'deck-clickable';
+      document.getElementById('container').appendChild(deckTarget);
+      deckTarget.addEventListener('click', refillGrid);
+    }
+    deckTarget.style.transform = `translate(${lyt.curX}px, ${lyt.curY}px)`;
+    deckTarget.style.display = '';
+  } else if (deckTarget) {
+    deckTarget.style.display = 'none';
+  }
 }
 
 // ── Toggle easy mode ──────────────────────────────────
