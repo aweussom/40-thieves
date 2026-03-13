@@ -548,6 +548,7 @@ function checkEnd() {
     if (deck.length > 0) {
       currentCard = deck.shift();
       phase = 'placing';
+      if (validCells(currentCard).length === 0) { triggerLose(); return; }
     } else {
       // Deck empty, no more eliminations
       const hasNumberCards = grid.some(c => c && c.rank <= 10);
